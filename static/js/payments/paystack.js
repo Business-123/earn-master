@@ -566,6 +566,31 @@
         </div>
       `;
 
+    const userBalance = Number(LS.state.currentUser?.balance || 0);
+    const amountDue = Number(context.amount || 0);
+    const canPayFromBalance = !!context.allow_balance_payment;
+    const hasEnoughBalance = userBalance >= amountDue;
+
+    const balancePaySection = canPayFromBalance
+      ? `
+        <div class="depCard" style="margin-top:14px;margin-bottom:14px;">
+          <div class="depSummary">
+            <div class="depSummaryLabel">Account balance</div>
+            <div class="depSummaryValue">${LS.money(userBalance)}</div>
+          </div>
+          <button id="levelPaymentBalanceBtn" class="depBtnPrimary" ${hasEnoughBalance ? "" : "disabled"}>
+            Pay ${LS.money(amountDue)} from balance
+          </button>
+          ${
+            hasEnoughBalance
+              ? ""
+              : `<div class="depMiniNote" style="margin-top:8px;"><i class="fas fa-info-circle"></i> Your balance is too low to cover this fee from your wallet. Top up or pay via mobile money below.</div>`
+          }
+        </div>
+        <div class="depMiniNote" style="margin:6px 0 14px;">— or pay with mobile money —</div>
+      `
+      : "";
+
     container.innerHTML = `
       <div class="depCardTitle">${LS.escapeHtml(context.label || "Level Payment")}</div>
 
@@ -583,6 +608,8 @@
         <div class="depSummaryLabel">Reward</div>
         <div class="depSummaryValue">${LS.money(context.reward || 0)}</div>
       </div>
+
+      ${balancePaySection}
 
       ${contactEmailField}
 
@@ -621,6 +648,10 @@
     document
       .getElementById("levelPaymentContinueBtn")
       ?.addEventListener("click", initializePaymentFlow);
+
+    document
+      .getElementById("levelPaymentBalanceBtn")
+      ?.addEventListener("click", payWithAccountBalance);
   }
 
   function renderPendingPayment(container, pending) {
@@ -897,6 +928,109 @@
     contextWrap.querySelectorAll("[data-transaction-ref]").forEach((row) => {
       row.addEventListener("click", () => handleTransactionOpen(row.dataset.transactionRef));
     });
+  }
+
+  let balancePaymentInFlight = false;
+
+  async function payWithAccountBalance() {
+    if (!LS.state.currentUser?.id) {
+      LS.toast("Login first.");
+      return;
+    }
+
+    const context = LS.state.paymentContext;
+    if (!context) {
+      LS.toast("Please select a level first.");
+      return;
+    }
+
+    if (balancePaymentInFlight) return;
+    balancePaymentInFlight = true;
+
+    const balanceBtn = document.getElementById("levelPaymentBalanceBtn");
+    if (window.setButtonLoading) {
+      window.setButtonLoading(balanceBtn, true, "Paying from balance...");
+    }
+
+    try {
+      const payPath =
+        context.type === "final_stage_unlock"
+          ? "/api/payments/final-stage/pay-with-balance"
+          : "/api/payments/level-unlock/pay-with-balance";
+
+      const response = await LS.apiPost(payPath, {
+        user_id: LS.state.currentUser.id,
+        level_id: context.level_id,
+      });
+
+      const currentBalance = Number(LS.state.currentUser?.balance || 0);
+      const paidAmount = Number(response.amount || context.amount || 0);
+      persistCurrentUserPatch({ balance: Math.max(0, currentBalance - paidAmount) });
+
+      setPaymentReturnState({
+        status: "success",
+        title: context.type === "final_stage_unlock" ? "Final stage unlocked" : "Level unlocked",
+        message:
+          response.message ||
+          (context.type === "final_stage_unlock"
+            ? `Level ${context.level_number} can now be fully completed.`
+            : `Level ${context.level_number} is now ready to start.`),
+        level_id: context.level_id || response.level_id || null,
+        level_number: context.level_number || null,
+        reference: response.reference || "",
+        type: context.type || "",
+      });
+
+      if (window.setUiNotice) {
+        window.setUiNotice({
+          page: "tasks",
+          tone: "success",
+          title: context.type === "final_stage_unlock" ? "Final stage unlocked" : "Level unlocked",
+          message:
+            context.type === "final_stage_unlock"
+              ? `Level ${context.level_number} can now be fully completed.`
+              : `Level ${context.level_number} is now ready to start.`,
+        });
+      }
+
+      LS.toast(response.message || "Paid from your account balance.", "good");
+      LS.clearPendingPayment();
+      LS.clearPaymentContext();
+
+      if (
+        window.LevelSystem.tasksBoard &&
+        typeof window.LevelSystem.tasksBoard.loadBoard === "function"
+      ) {
+        await window.LevelSystem.tasksBoard.loadBoard();
+      }
+
+      if (window.refreshMessagesFromServer) {
+        await window.refreshMessagesFromServer({ force: false }).catch(() => null);
+      }
+
+      if (typeof window.refreshMeFromServer === "function") {
+        await window.refreshMeFromServer().catch(() => null);
+      }
+
+      if (typeof window.refreshCurrentUserViews === "function") {
+        window.refreshCurrentUserViews();
+      }
+
+      if (window.flashButtonSuccess) {
+        window.flashButtonSuccess(balanceBtn, "Paid", 700);
+      }
+
+      if (window.setWalletSubTab) window.setWalletSubTab("wallet");
+      LS.goToPage("wallet");
+      renderPaymentPage();
+    } catch (error) {
+      LS.toast(error.message);
+    } finally {
+      if (window.setButtonLoading) {
+        window.setButtonLoading(balanceBtn, false);
+      }
+      balancePaymentInFlight = false;
+    }
   }
 
   async function initializePaymentFlow() {

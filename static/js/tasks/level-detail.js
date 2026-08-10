@@ -404,6 +404,7 @@
           amount: detail.final_stage_fee,
           label: `Continue Level ${detail.level_number}`,
           reward: detail.completion_reward,
+          allow_balance_payment: !!detail.allow_balance_payment,
         });
         if (window.setWalletSubTab) window.setWalletSubTab("pay");
         LS.goToPage("wallet");

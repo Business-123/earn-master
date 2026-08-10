@@ -648,6 +648,7 @@ def build_level_board(
                 "progress_total": display_total,
                 "action_label": action_label,
                 "is_free_task": _is_free_level(level),
+                "allow_balance_payment": bool(level["allow_balance_payment"]),
             }
         )
 
@@ -699,6 +700,7 @@ def build_level_detail(
             "is_accessible_now": False,
             "show_final_stage_gate": False,
             "is_free_task": _is_free_level(level),
+            "allow_balance_payment": bool(level["allow_balance_payment"]),
             "tasks": [],
         }
 
@@ -737,5 +739,6 @@ def build_level_detail(
         "progress_completed": visible_completed,
         "progress_total": visible_total,
         "is_free_task": _is_free_level(level),
+        "allow_balance_payment": bool(level["allow_balance_payment"]),
         "tasks": tasks,
     }

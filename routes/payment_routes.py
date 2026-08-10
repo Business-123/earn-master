@@ -11,9 +11,11 @@ from services.paystack_service import (
     get_payment_config,
     initialize_final_stage_payment,
     initialize_level_unlock_payment,
+    pay_level_fee_with_balance,
     verify_and_apply_payment,
 )
 from utils.auth import json_error as auth_json_error, require_user_access
+from utils.enums import PaymentType
 
 payment_bp = Blueprint("payment_bp", __name__)
 
@@ -108,6 +110,66 @@ def payments_final_stage_init():
                 callback_url=callback_url,
             )
         return jsonify({"success": True, "payment": result})
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+
+@payment_bp.post("/api/payments/level-unlock/pay-with-balance")
+def payments_level_unlock_pay_with_balance():
+    data = request.get_json(silent=True) or {}
+
+    user, _payload, error = require_user_access("deposit", data)
+    if error:
+        return error
+
+    level_id = data.get("level_id")
+    if not level_id:
+        return _json_error("Missing level_id.")
+
+    try:
+        level_id = int(level_id)
+    except Exception:
+        return _json_error("Invalid level_id.")
+
+    try:
+        with get_connection() as conn:
+            result = pay_level_fee_with_balance(
+                conn=conn,
+                user_id=user["user_id"],
+                level_id=level_id,
+                payment_type=PaymentType.LEVEL_UNLOCK.value,
+            )
+        return jsonify(result)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+
+@payment_bp.post("/api/payments/final-stage/pay-with-balance")
+def payments_final_stage_pay_with_balance():
+    data = request.get_json(silent=True) or {}
+
+    user, _payload, error = require_user_access("deposit", data)
+    if error:
+        return error
+
+    level_id = data.get("level_id")
+    if not level_id:
+        return _json_error("Missing level_id.")
+
+    try:
+        level_id = int(level_id)
+    except Exception:
+        return _json_error("Invalid level_id.")
+
+    try:
+        with get_connection() as conn:
+            result = pay_level_fee_with_balance(
+                conn=conn,
+                user_id=user["user_id"],
+                level_id=level_id,
+                payment_type=PaymentType.FINAL_STAGE_UNLOCK.value,
+            )
+        return jsonify(result)
     except ValueError as exc:
         return _json_error(str(exc), 400)
 

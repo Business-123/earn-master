@@ -56,6 +56,8 @@ def apply_schema() -> None:
         ensure_column(conn, "users", "welcome_popup_hidden", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "users", "avatar_key", "TEXT")
 
+        ensure_column(conn, "level_catalog", "allow_balance_payment", "INTEGER NOT NULL DEFAULT 0")
+
         manual_payment_columns = {
             "approval_source": "TEXT",
             "admin_action_metadata": "TEXT",

@@ -7,7 +7,7 @@ import secrets
 import time
 import random
 
-from config import ADMIN_PASSWORD, ADMIN_USERNAME, DATABASE_PATH, AVATAR_FILENAMES, AVATAR_PATH_PREFIX
+from config import ADMIN_PASSWORD, ADMIN_USERNAME, DATABASE_PATH, SECRET_KEY, AVATAR_FILENAMES, AVATAR_PATH_PREFIX
 from functools import wraps
 from typing import Any
 from datetime import datetime, timedelta
@@ -62,7 +62,7 @@ app = Flask(
 )
 
 app.config.update(
-    SECRET_KEY=os.getenv("SECRET_KEY") or secrets.token_hex(32),
+    SECRET_KEY=SECRET_KEY,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE=os.getenv("SESSION_COOKIE_SAMESITE", "Lax"),
     SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "false").strip().lower() == "true",
@@ -2969,6 +2969,40 @@ def admin_edit_level(level_id):
         summary=f"Edited level {existing['level_number']} economics: {updates}",
         actor_id=get_admin_actor_id(),
         metadata_json=json.dumps(updates),
+    )
+    return jsonify({"status": "updated", "level": dict(row)})
+
+
+@app.post("/api/admin/levels/<int:level_id>/toggle-balance-payment")
+@admin_api_required
+def admin_toggle_level_balance_payment(level_id):
+    data = request.json or {}
+    enabled = bool(data.get("enabled"))
+
+    conn = get_db()
+    existing = conn.execute("SELECT * FROM level_catalog WHERE id=?", (level_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({"error": "Level not found."}), 404
+
+    conn.execute(
+        "UPDATE level_catalog SET allow_balance_payment=? WHERE id=?",
+        (1 if enabled else 0, level_id),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM level_catalog WHERE id=?", (level_id,)).fetchone()
+    conn.close()
+
+    log_audit_event(
+        action_group="levels",
+        action_type="toggle_balance_payment",
+        target_type="level",
+        target_id=str(level_id),
+        summary=(
+            f"{'Enabled' if enabled else 'Disabled'} pay-with-balance for "
+            f"Level {existing['level_number']}"
+        ),
+        actor_id=get_admin_actor_id(),
     )
     return jsonify({"status": "updated", "level": dict(row)})
 

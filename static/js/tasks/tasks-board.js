@@ -1016,6 +1016,7 @@ B: ${content.item_b}`;
             data-unlock-fee="${level.unlock_fee}"
             data-final-stage-fee="${level.final_stage_fee}"
             data-reward="${level.completion_reward}"
+            data-allow-balance-payment="${level.allow_balance_payment ? "1" : "0"}"
             ${action === "blocked" ? "disabled" : ""}
           >
             ${LS.escapeHtml(buttonLabel)}
@@ -1241,6 +1242,7 @@ B: ${content.item_b}`;
         const unlockFee = Number(button.dataset.unlockFee || 0);
         const finalStageFee = Number(button.dataset.finalStageFee || 0);
         const reward = Number(button.dataset.reward || 0);
+        const allowBalancePayment = button.dataset.allowBalancePayment === "1";
 
         if (action === "blocked") {
           LS.toast("Finish your active level first.");
@@ -1256,6 +1258,7 @@ B: ${content.item_b}`;
             label: `Unlock Level ${levelNumber}`,
             reward,
             final_stage_fee: finalStageFee,
+            allow_balance_payment: allowBalancePayment,
           });
           if (window.setWalletSubTab) window.setWalletSubTab("pay");
           LS.goToPage("wallet");

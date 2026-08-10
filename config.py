@@ -17,6 +17,21 @@ if not ADMIN_USERNAME or not ADMIN_PASSWORD:
         "Create .env from .env.example and fill in the values."
     )
 
+# Flask signs session cookies with this. If it isn't set explicitly, a
+# random value would otherwise be generated on every process start, which
+# invalidates every logged-in user's session cookie on every deploy AND on
+# every restart/scale event/dyno cycle. Fail fast instead, the same way we
+# do for admin credentials above, so this can never silently ship broken.
+SECRET_KEY: Final[str] = os.getenv("SECRET_KEY", "").strip()
+if not SECRET_KEY:
+    raise RuntimeError(
+        "SECRET_KEY must be set in .env (or your host's environment variables) "
+        "and must stay the same across deploys/restarts. Generate one once with: "
+        "python3 -c \"import secrets; print(secrets.token_hex(32))\" "
+        "and store it as a permanent env var - never regenerate it on each deploy, "
+        "or every user will be logged out each time you deploy."
+    )
+
 DATABASE_PATH: Final[Path] = Path(os.getenv("DATABASE_PATH") or (BASE_DIR / "database.db"))
 
 PAYMENT_PROVIDER: Final[str] = "paystack"

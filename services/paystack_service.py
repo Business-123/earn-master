@@ -281,6 +281,7 @@ def _insert_payment_intent(
     provider_access_code: str | None,
     provider_response_raw: dict[str, Any],
     status: str,
+    provider: str | None = None,
 ) -> dict[str, Any]:
     timestamp = now_iso()
 
@@ -311,7 +312,7 @@ def _insert_payment_intent(
             float(amount),
             PAYMENT_CURRENCY,
             reference,
-            PAYMENT_PROVIDER,
+            provider or PAYMENT_PROVIDER,
             provider_access_code,
             status,
             json.dumps(provider_response_raw),
@@ -488,6 +489,97 @@ def initialize_final_stage_payment(
         "public_key": None,
         "payment_status": data.get("status"),
         "payment_channel": data.get("channel"),
+    }
+
+
+def pay_level_fee_with_balance(
+    conn: sqlite3.Connection,
+    *,
+    user_id: str,
+    level_id: int,
+    payment_type: str,
+) -> dict[str, Any]:
+    """Settles a level-unlock or final-stage fee straight out of the user's
+    account balance instead of routing through the Payment Hub/Paystack.
+    Only usable when an admin has switched on `allow_balance_payment` for
+    the level in question (see /api/admin/levels/<id>/toggle-balance-payment).
+    """
+    level = get_level_by_id(conn, level_id)
+    if not level:
+        raise ValueError("Level not found.")
+
+    if not int(level["allow_balance_payment"] or 0):
+        raise ValueError("Balance payment is not enabled for this level.")
+
+    if payment_type == PaymentType.LEVEL_UNLOCK.value:
+        user_level = get_user_level(conn, user_id, level_id)
+        if user_level and user_level["status"] != UserLevelStatus.LOCKED.value:
+            raise ValueError("This level is already unlocked or completed.")
+        amount = float(level["unlock_fee"] or 0)
+    elif payment_type == PaymentType.FINAL_STAGE_UNLOCK.value:
+        if int(level["final_stage_enabled"] or 0) != 1:
+            raise ValueError("This level does not support final-stage unlock.")
+        user_level = get_user_level(conn, user_id, level_id)
+        if not user_level:
+            raise ValueError("You have not unlocked this level yet.")
+        if user_level["status"] != UserLevelStatus.ACTIVE_FINAL_STAGE_PENDING.value:
+            raise ValueError("Final stage is not available for payment yet.")
+        amount = float(level["final_stage_fee"] or 0)
+    else:
+        raise ValueError("Unsupported payment type.")
+
+    amount = round(amount, 2)
+
+    if amount > 0:
+        cursor = conn.execute(
+            """
+            UPDATE users
+            SET balance = ROUND(balance - ?, 2)
+            WHERE user_id = ?
+              AND COALESCE(balance, 0) >= ?
+            """,
+            (amount, user_id, amount),
+        )
+        if cursor.rowcount == 0:
+            conn.rollback()
+            raise ValueError("Insufficient account balance to cover this fee.")
+
+    reference = f"EM_BAL_{user_id}_{int(level['level_number'])}_{int(time.time() * 1000)}_{secrets.token_hex(3)}"
+
+    _insert_payment_intent(
+        conn,
+        user_id=user_id,
+        level_id=level_id,
+        payment_type=payment_type,
+        amount=amount,
+        reference=reference,
+        provider_access_code=None,
+        provider_response_raw={"provider": "balance", "note": "Paid from account balance."},
+        status=PaymentStatus.SUCCESS.value,
+        provider="balance",
+    )
+    conn.execute(
+        "UPDATE payment_intents SET verified_at = ? WHERE reference = ?",
+        (now_iso(), reference),
+    )
+    conn.commit()
+
+    if payment_type == PaymentType.LEVEL_UNLOCK.value:
+        user_level = mark_level_unlocked(conn, user_id, level_id)
+        message = "Level unlocked using your account balance."
+    else:
+        user_level = mark_final_stage_unlocked(conn, user_id, level_id)
+        message = "Final stage unlocked using your account balance."
+
+    return {
+        "success": True,
+        "message": message,
+        "reference": reference,
+        "payment_type": payment_type,
+        "level_id": level_id,
+        "user_level": user_level,
+        "payment_status": PaymentStatus.SUCCESS.value,
+        "amount": amount,
     }
 
 

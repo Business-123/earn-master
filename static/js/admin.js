@@ -1008,7 +1008,7 @@
     try {
       const rows = await api("/api/admin/levels");
       if (!rows.length) {
-        tbody.innerHTML = `<tr><td colspan="7" class="empty-row">No levels found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No levels found.</td></tr>`;
         return;
       }
       tbody.innerHTML = rows.map((lv) => `
@@ -1020,6 +1020,11 @@
           <td class="mono">${lv.base_task_count}/${lv.total_task_count}</td>
           <td>${statusBadge(lv.is_active ? "active" : "blocked")}</td>
           <td>
+            <button class="btn btn-sm ${lv.allow_balance_payment ? "btn-reject" : "btn-approve"}" data-toggle-level-balance="${lv.id}" data-enabled="${lv.allow_balance_payment ? "1" : "0"}">
+              ${lv.allow_balance_payment ? "Disable" : "Enable"}
+            </button>
+          </td>
+          <td>
             <div class="row-actions">
               <button class="btn btn-sm btn-ghost" data-edit-level="${lv.id}" data-level-number="${lv.level_number}"
                 data-unlock="${lv.unlock_fee}" data-final="${lv.final_stage_fee}" data-reward="${lv.completion_reward}">
@@ -1030,11 +1035,33 @@
         </tr>
       `).join("");
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">${escapeHtml(err.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 
   $("#refreshLevels").addEventListener("click", loadLevels);
+
+  document.addEventListener("click", async (e) => {
+    const balanceToggleBtn = e.target.closest("[data-toggle-level-balance]");
+    if (balanceToggleBtn) {
+      const levelId = balanceToggleBtn.dataset.toggleLevelBalance;
+      const wantEnabled = balanceToggleBtn.dataset.enabled === "0";
+      balanceToggleBtn.disabled = true;
+      try {
+        await api(`/api/admin/levels/${encodeURIComponent(levelId)}/toggle-balance-payment`, {
+          method: "POST",
+          body: { enabled: wantEnabled },
+        });
+        toast(wantEnabled ? "Balance payment enabled" : "Balance payment disabled", "good");
+        await loadLevels();
+      } catch (err) {
+        toast(err.message, "error");
+      } finally {
+        balanceToggleBtn.disabled = false;
+      }
+      return;
+    }
+  });
 
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-edit-level]");
