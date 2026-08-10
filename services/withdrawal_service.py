@@ -12,6 +12,7 @@ from services.message_service import (
     build_withdrawal_pending_message,
     create_message,
 )
+from services.settings_service import get_withdrawal_verification_fee
 
 
 ALLOWED_WITHDRAW_NETWORKS = {"MTN", "TELECEL", "TIGO", "AIRTELTIGO"}
@@ -58,7 +59,7 @@ def get_withdrawal_eligibility(
     user = fetch_one(
         conn,
         """
-        SELECT user_id, balance
+        SELECT user_id, balance, withdrawal_verification_paid
         FROM users
         WHERE user_id = ?
         """,
@@ -66,6 +67,26 @@ def get_withdrawal_eligibility(
     )
     if not user:
         raise ValueError("User not found.")
+
+    verification_fee = get_withdrawal_verification_fee(conn)
+    verification_paid = bool(user["withdrawal_verification_paid"])
+
+    if not verification_paid:
+        return {
+            "can_withdraw": False,
+            "reason_code": "verification_fee_required",
+            "message": (
+                f"A one-time verification fee of {verification_fee:.2f} GHS "
+                "is required before you can withdraw."
+            ),
+            "current_active_level_id": None,
+            "current_active_level_number": None,
+            "balance": float(user["balance"] or 0.0),
+            "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
+            "verification_fee_required": True,
+            "verification_fee_amount": verification_fee,
+            "verification_fee_paid": False,
+        }
 
     active_level = get_active_incomplete_level(conn, user_id)
     balance = float(user["balance"] or 0.0)
@@ -79,6 +100,9 @@ def get_withdrawal_eligibility(
             "current_active_level_number": int(active_level["level_number"]),
             "balance": balance,
             "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
+            "verification_fee_required": False,
+            "verification_fee_amount": verification_fee,
+            "verification_fee_paid": True,
         }
 
     if balance < MIN_WITHDRAWAL_AMOUNT:
@@ -90,6 +114,9 @@ def get_withdrawal_eligibility(
             "current_active_level_number": None,
             "balance": balance,
             "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
+            "verification_fee_required": False,
+            "verification_fee_amount": verification_fee,
+            "verification_fee_paid": True,
         }
 
     return {
@@ -100,6 +127,9 @@ def get_withdrawal_eligibility(
         "current_active_level_number": None,
         "balance": balance,
         "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
+        "verification_fee_required": False,
+        "verification_fee_amount": verification_fee,
+        "verification_fee_paid": True,
     }
 
 

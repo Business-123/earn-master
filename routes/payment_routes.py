@@ -14,6 +14,11 @@ from services.paystack_service import (
     pay_level_fee_with_balance,
     verify_and_apply_payment,
 )
+from services.withdrawal_verification_service import (
+    get_withdrawal_verification_status,
+    initialize_withdrawal_verification_payment,
+    verify_withdrawal_verification_payment,
+)
 from utils.auth import json_error as auth_json_error, require_user_access
 from utils.enums import PaymentType
 
@@ -271,3 +276,59 @@ def payments_history():
     with get_connection() as conn:
         transactions = get_user_payment_history(conn, user["user_id"])
     return jsonify({"success": True, "transactions": transactions})
+
+
+@payment_bp.post("/api/payments/withdrawal-verification/status")
+def withdrawal_verification_status():
+    data = request.get_json(silent=True) or {}
+
+    user, _payload, error = require_user_access("withdraw", data)
+    if error:
+        return error
+
+    try:
+        with get_connection() as conn:
+            status = get_withdrawal_verification_status(conn, user["user_id"])
+        return jsonify({"success": True, "status": status})
+    except ValueError as exc:
+        return _json_error(str(exc), 404)
+
+
+@payment_bp.post("/api/payments/withdrawal-verification/init")
+def withdrawal_verification_init():
+    data = request.get_json(silent=True) or {}
+
+    user, _payload, error = require_user_access("withdraw", data)
+    if error:
+        return error
+
+    contact_email = data.get("contact_email") or data.get("email")
+    callback_url = data.get("callback_url")
+
+    try:
+        with get_connection() as conn:
+            result = initialize_withdrawal_verification_payment(
+                conn=conn,
+                user_id=user["user_id"],
+                email=contact_email,
+                callback_url=callback_url,
+            )
+        return jsonify({"success": True, "payment": result})
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+
+
+@payment_bp.post("/api/payments/withdrawal-verification/verify")
+def withdrawal_verification_verify():
+    data = request.get_json(silent=True) or {}
+    reference = (data.get("reference") or "").strip()
+
+    if not reference:
+        return _json_error("Missing reference.")
+
+    try:
+        with get_connection() as conn:
+            result = verify_withdrawal_verification_payment(conn, reference)
+        return jsonify(result)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)

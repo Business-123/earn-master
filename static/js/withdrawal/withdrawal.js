@@ -2,6 +2,9 @@
   const LS = window.LevelSystem;
   if (!LS) return;
 
+  let verificationPromptShown = false;
+  let verificationPaymentInFlight = false;
+
   function ensureWithdrawalShell() {
     const page = document.getElementById("withdrawalPage");
     if (!page) return null;
@@ -309,6 +312,58 @@ async function deleteSelectedMethod() {
   }
 }
 
+async function startVerificationFeePayment(feeAmount) {
+  if (verificationPaymentInFlight) return;
+  verificationPaymentInFlight = true;
+
+  try {
+    const callbackUrl = `${window.location.origin}/?wv_return=1`;
+
+    const response = await LS.apiPost("/api/payments/withdrawal-verification/init", {
+      user_id: LS.state.currentUser.id,
+      callback_url: callbackUrl,
+    });
+
+    const payment = response.payment || {};
+
+    if (payment.waived) {
+      LS.toast("Verification fee waived. You're all set to withdraw.");
+      await loadEligibility();
+      return;
+    }
+
+    if (payment.authorization_url) {
+      window.location.href = payment.authorization_url;
+      return;
+    }
+
+    LS.toast("Could not start the verification payment. Please try again.");
+  } catch (error) {
+    LS.toast(error.message || "Could not start the verification payment.");
+  } finally {
+    verificationPaymentInFlight = false;
+  }
+}
+
+async function promptVerificationFeePayment(eligibility) {
+  const feeAmount = Number(eligibility?.verification_fee_amount || 0);
+
+  const confirmed = window.showConfirmModal
+    ? await window.showConfirmModal({
+        title: "One-time verification required",
+        message: `Before your first withdrawal, a one-time verification fee of ${LS.money(feeAmount)} is required. You'll only ever pay this once.`,
+        confirmText: `Pay ${LS.money(feeAmount)} Now`,
+        cancelText: "Not now",
+      })
+    : window.confirm(
+        `A one-time verification fee of ${LS.money(feeAmount)} is required before you can withdraw. Pay now?`
+      );
+
+  if (!confirmed) return;
+
+  await startVerificationFeePayment(feeAmount);
+}
+
 async function submitWithdrawalRequest() {
   const requestBtn = document.getElementById("withdrawRequestBtnNew");
 
@@ -320,6 +375,13 @@ async function submitWithdrawalRequest() {
     const eligibility = LS.state.withdrawal.eligibility || (await loadEligibility());
 
     if (!eligibility?.can_withdraw) {
+      if (eligibility?.reason_code === "verification_fee_required") {
+        if (window.setButtonLoading) {
+          window.setButtonLoading(requestBtn, false);
+        }
+        await promptVerificationFeePayment(eligibility);
+        return;
+      }
       throw new Error(eligibility?.message || "Withdrawal is currently blocked.");
     }
 
@@ -457,14 +519,59 @@ if (deleteMethodBtn && !deleteMethodBtn.dataset.bound) {
   deleteMethodBtn.addEventListener("click", deleteSelectedMethod);
 }
 
-    loadEligibility().catch((error) => setWithdrawError(error.message));
+    loadEligibility()
+      .then((eligibility) => {
+        if (
+          eligibility?.reason_code === "verification_fee_required" &&
+          !verificationPromptShown
+        ) {
+          verificationPromptShown = true;
+          promptVerificationFeePayment(eligibility);
+        }
+      })
+      .catch((error) => setWithdrawError(error.message));
     loadHistory().catch((error) => setWithdrawError(error.message));
+  }
+
+  async function handleWithdrawalVerificationReturn() {
+    const params = new URLSearchParams(window.location.search);
+    const isReturn = params.get("wv_return");
+    const reference =
+      params.get("reference") ||
+      params.get("trxref") ||
+      params.get("payment_reference");
+
+    if (!isReturn) return;
+
+    history.replaceState({}, document.title, window.location.pathname);
+
+    if (!reference || !LS.state.currentUser?.id) return;
+
+    try {
+      const response = await LS.apiPost("/api/payments/withdrawal-verification/verify", {
+        reference,
+      });
+
+      if (response.success) {
+        LS.toast(response.message || "Verification fee paid. You can now withdraw.");
+      } else {
+        LS.toast(response.message || "We could not verify this payment yet.");
+      }
+    } catch (error) {
+      LS.toast(error.message || "We could not verify this payment yet.");
+    } finally {
+      await loadEligibility().catch(() => null);
+    }
   }
 
   window.LevelSystem.withdrawal = {
     init,
     loadMethods,
     loadEligibility,
-    loadHistory,
+    handleWithdrawalVerificationReturn,
   };
+
+  document.addEventListener("DOMContentLoaded", () => {
+    handleWithdrawalVerificationReturn();
+  });
 })();

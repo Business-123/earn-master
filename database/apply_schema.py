@@ -55,6 +55,8 @@ def apply_schema() -> None:
         ensure_column(conn, "users", "current_active_level_id", "INTEGER")
         ensure_column(conn, "users", "welcome_popup_hidden", "INTEGER NOT NULL DEFAULT 0")
         ensure_column(conn, "users", "avatar_key", "TEXT")
+        ensure_column(conn, "users", "withdrawal_verification_paid", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(conn, "users", "withdrawal_verification_paid_at", "TEXT")
 
         ensure_column(conn, "level_catalog", "allow_balance_payment", "INTEGER NOT NULL DEFAULT 0")
 

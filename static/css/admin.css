@@ -248,6 +248,30 @@ button, input { font-family: inherit; font-size: inherit; color: inherit; }
   flex-wrap: wrap;
 }
 .panel-head h2 { font-size: 17px; font-weight: 700; }
+
+.settings-card {
+  background: var(--a-surface);
+  border: 1px solid var(--a-stroke);
+  border-radius: var(--a-radius);
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+.settings-card-head { margin-bottom: 12px; }
+.settings-card-title { font-weight: 700; font-size: 14px; }
+.settings-card-sub { color: var(--a-muted); font-size: 12.5px; margin-top: 2px; }
+.settings-card-body { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.field-inline { display: flex; flex-direction: column; gap: 6px; }
+.field-inline span { font-size: 12px; color: var(--a-muted); font-weight: 600; }
+.field-inline input {
+  background: var(--a-bg1);
+  border: 1px solid var(--a-stroke);
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+  width: 160px;
+}
+.field-inline input:focus { border-color: var(--a-accent); }
+
 .search-input {
   background: var(--a-surface);
   border: 1px solid var(--a-stroke);

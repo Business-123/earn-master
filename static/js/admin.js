@@ -259,6 +259,7 @@
     loadOverview();
     loadUsers();
     loadWithdrawals();
+    loadWithdrawalFeeSetting();
     loadPayments();
     loadTasks();
     loadCategories();
@@ -749,6 +750,43 @@
   }
 
   $("#refreshWithdrawals").addEventListener("click", loadWithdrawals);
+
+  // ---------------- withdrawal verification fee ----------------
+  async function loadWithdrawalFeeSetting() {
+    const input = $("#withdrawalFeeInput");
+    if (!input) return;
+    try {
+      const data = await api("/api/admin/settings/withdrawal-verification-fee");
+      input.value = Number(data.fee ?? 0).toFixed(2);
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  const saveWithdrawalFeeBtn = $("#saveWithdrawalFeeBtn");
+  if (saveWithdrawalFeeBtn) {
+    saveWithdrawalFeeBtn.addEventListener("click", async () => {
+      const input = $("#withdrawalFeeInput");
+      const fee = Number(input?.value);
+      if (!Number.isFinite(fee) || fee < 0) {
+        toast("Enter a valid fee amount.", "error");
+        return;
+      }
+      saveWithdrawalFeeBtn.disabled = true;
+      try {
+        const data = await api("/api/admin/settings/withdrawal-verification-fee", {
+          method: "POST",
+          body: { fee },
+        });
+        input.value = Number(data.fee ?? fee).toFixed(2);
+        toast("Withdrawal verification fee updated", "good");
+      } catch (err) {
+        toast(err.message, "error");
+      } finally {
+        saveWithdrawalFeeBtn.disabled = false;
+      }
+    });
+  }
 
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-withdrawal-decision]");

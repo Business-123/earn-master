@@ -43,6 +43,10 @@ from services.manual_payment_service import (
     get_admin_manual_payments,
 )
 from services.payment_history_service import get_user_payment_history
+from services.settings_service import (
+    get_withdrawal_verification_fee,
+    set_withdrawal_verification_fee,
+)
 from services.user_email_service import (
     backfill_user_email_fields,
     get_user_contact_email,
@@ -3005,6 +3009,48 @@ def admin_toggle_level_balance_payment(level_id):
         actor_id=get_admin_actor_id(),
     )
     return jsonify({"status": "updated", "level": dict(row)})
+
+
+# ----------------------
+# APP SETTINGS
+# ----------------------
+@app.get("/api/admin/settings/withdrawal-verification-fee")
+@admin_api_required
+def admin_get_withdrawal_verification_fee():
+    conn = get_db()
+    fee = get_withdrawal_verification_fee(conn)
+    conn.close()
+    return jsonify({"fee": fee})
+
+
+@app.post("/api/admin/settings/withdrawal-verification-fee")
+@admin_api_required
+def admin_set_withdrawal_verification_fee():
+    data = request.json or {}
+
+    try:
+        amount = float(data.get("fee"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid fee amount."}), 400
+
+    conn = get_db()
+    try:
+        clean_amount = set_withdrawal_verification_fee(conn, amount)
+    except ValueError as exc:
+        conn.close()
+        return jsonify({"error": str(exc)}), 400
+    conn.close()
+
+    log_audit_event(
+        action_group="settings",
+        action_type="edit_withdrawal_verification_fee",
+        target_type="setting",
+        target_id="withdrawal_verification_fee",
+        summary=f"Set withdrawal verification fee to {clean_amount} GHS",
+        actor_id=get_admin_actor_id(),
+        metadata_json=json.dumps({"fee": clean_amount}),
+    )
+    return jsonify({"status": "updated", "fee": clean_amount})
 
 
 # ----------------------

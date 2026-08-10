@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
     current_active_level_id INTEGER,
     welcome_popup_hidden INTEGER NOT NULL DEFAULT 0,
     avatar_key TEXT,
+    withdrawal_verification_paid INTEGER NOT NULL DEFAULT 0,
+    withdrawal_verification_paid_at TEXT,
     created_at TEXT,
     last_seen TEXT
 );
@@ -208,6 +210,26 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS withdrawal_verification_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    reference TEXT NOT NULL UNIQUE,
+    amount REAL NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'GHS',
+    provider TEXT NOT NULL DEFAULT 'paystack',
+    status TEXT NOT NULL DEFAULT 'pending',
+    provider_response_raw TEXT,
+    verified_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- =========================================================
 -- INDEXES
 -- =========================================================
@@ -241,3 +263,9 @@ ON task_submissions(user_level_task_id, submitted_at);
 
 CREATE INDEX IF NOT EXISTS idx_activity_feed_created_at
 ON activity_feed_events(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_withdrawal_verification_payments_reference
+ON withdrawal_verification_payments(reference);
+
+CREATE INDEX IF NOT EXISTS idx_withdrawal_verification_payments_user_status
+ON withdrawal_verification_payments(user_id, status);
