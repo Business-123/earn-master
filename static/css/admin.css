@@ -108,16 +108,16 @@ button, input { font-family: inherit; font-size: inherit; color: inherit; }
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
 }
 .login-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: var(--a-accent-soft);
-  color: var(--a-accent);
-  font-family: var(--a-mono);
-  font-weight: 700;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f0c66e, #32d2a3 60%, #f06543);
+  color: #07100d;
+  font-size: 19px;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.28);
   margin-bottom: 4px;
 }
 .login-card h1 { font-size: 19px; font-weight: 700; }
@@ -154,17 +154,16 @@ button, input { font-family: inherit; font-size: inherit; color: inherit; }
 }
 .topbar-brand { display: flex; align-items: center; gap: 10px; }
 .brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  background: var(--a-accent-soft);
-  color: var(--a-accent);
-  font-family: var(--a-mono);
-  font-weight: 700;
-  font-size: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #f0c66e, #32d2a3 60%, #f06543);
+  color: #07100d;
+  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
 }
 .brand-name { font-weight: 700; font-size: 15px; }
 .topbar-actions { display: flex; align-items: center; gap: 14px; }

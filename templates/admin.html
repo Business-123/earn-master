@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex, nofollow">
 <title>Admin · EarnMaster</title>
+<link rel="icon" href="{{ url_for('static', filename='images/favicon-1.png') }}">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link rel="stylesheet" href="/static/css/admin.css">
 </head>
 <body>
@@ -12,7 +14,7 @@
 <!-- ===================== LOGIN ===================== -->
 <section id="loginScreen" class="login-screen">
   <form id="loginForm" class="login-card" autocomplete="off">
-    <div class="login-mark">EM</div>
+    <div class="login-mark"><i class="fas fa-crown"></i></div>
     <h1>Admin console</h1>
     <p class="login-sub">Sign in to manage users, withdrawals and payments.</p>
 
@@ -36,8 +38,8 @@
 
   <header class="topbar">
     <div class="topbar-brand">
-      <span class="brand-mark">EM</span>
-      <span class="brand-name">Admin console</span>
+      <span class="brand-mark"><i class="fas fa-crown"></i></span>
+      <span class="brand-name">EarnMaster Admin</span>
     </div>
     <div class="topbar-actions">
       <input type="search" id="globalSearch" class="search-input" placeholder="Jump to user (id, phone, email)…">

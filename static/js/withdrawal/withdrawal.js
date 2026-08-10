@@ -10,13 +10,11 @@
      <div class="wHeader">
         <div>
           <div class="wTitle">Withdraw Funds</div>
-          <div class="wSub">Min 50 GHS, keep 50 GHS in your account.</div>
+          <div class="wSub">Minimum withdrawal amount is 50 GHS.</div>
         </div>
       </div>
 
       <div id="withdrawNoticeMount"></div>
-
-      <div id="withdrawEligibilityBox" class="wBalanceCard"></div>
 
       <div class="wFormCard">
         <div class="wFormTitle">
@@ -27,10 +25,6 @@
         <div class="form-group">
   <label>Withdrawal Method</label>
   <select id="withdrawMethodSelectNew" class="wSelect"></select>
-  <div id="withdrawNoMethodMsg" class="wNoMethodMsg" style="display:none;">
-    <i class="fas fa-triangle-exclamation"></i>
-    No saved withdrawal method found.
-  </div>
 
   <div style="display:flex; gap:8px; margin-top:10px;">
     <button id="withdrawAddMethodBtnNew" type="button" class="wAddMethodBtn" style="flex:1; margin-top:0;">
@@ -66,18 +60,6 @@
     return page;
   }
 
-  function renderEligibilitySkeleton() {
-    const box = document.getElementById("withdrawEligibilityBox");
-    if (!box) return;
-
-    box.innerHTML = `
-      <div class="ui-skeleton-line short"></div>
-      <div class="ui-skeleton-line medium" style="margin-top:10px;"></div>
-      <div class="ui-skeleton-line long" style="margin-top:14px;"></div>
-      <div class="ui-skeleton-line medium" style="margin-top:8px;"></div>
-    `;
-  }
-
   function renderHistorySkeleton() {
     const list = document.getElementById("withdrawHistoryListNew");
     if (!list) return;
@@ -95,31 +77,6 @@
         `
       )
       .join("");
-  }
-
-  function renderEligibility(eligibility) {
-    const box = document.getElementById("withdrawEligibilityBox");
-    if (!box) return;
-
-    const badgeClass = eligibility.can_withdraw
-      ? "pill pill-withdraw-open"
-      : "pill pill-blocked";
-    const badgeText = eligibility.can_withdraw
-      ? "Withdrawal Available"
-      : "Withdrawal Temporarily Unavailable";
-
-    box.innerHTML = `
-      <div class="wBalTop">
-        <div class="wBalLabel">Current Balance</div>
-        <div class="wBalValue">${LS.money(eligibility.balance)}</div>
-      </div>
-      <div class="wBalNote" style="margin-top:12px;">
-        <span class="${badgeClass}">${LS.escapeHtml(badgeText)}</span>
-      </div>
-      <div class="wInlineHint" style="margin-top:12px;">
-        ${LS.escapeHtml(eligibility.message)}
-      </div>
-    `;
   }
 
 function updateDeleteMethodButtonVisibility() {
@@ -142,20 +99,16 @@ function updateDeleteMethodButtonVisibility() {
   }
 
   const select = document.getElementById("withdrawMethodSelectNew");
-  const msg = document.getElementById("withdrawNoMethodMsg");
-  if (!select || !msg) return;
+  if (!select) return;
 
   const methods = LS.state.withdrawal.methods || [];
 
   if (!methods.length) {
     select.innerHTML = `<option value="">Select saved method</option>`;
-    msg.style.display = "flex";
     LS.state.withdrawal.selectedMethodId = "";
     updateDeleteMethodButtonVisibility();
     return;
   }
-
-  msg.style.display = "none";
 
   select.innerHTML =
     `<option value="">Select saved method</option>` +
@@ -271,7 +224,6 @@ async function loadMethods() {
     });
 
     LS.state.withdrawal.eligibility = response.eligibility;
-    renderEligibility(response.eligibility);
     return response.eligibility;
   }
 
@@ -475,7 +427,6 @@ const confirmed = window.showConfirmModal
       window.mountUiNotice("withdrawNoticeMount", "withdrawal");
     }
 
-    renderEligibilitySkeleton();
     renderHistorySkeleton();
 
     if (!LS.state.currentUser?.id) return;

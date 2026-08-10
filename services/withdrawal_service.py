@@ -5,7 +5,7 @@ from typing import Any
 
 from werkzeug.security import generate_password_hash
 
-from config import MIN_RETAINED_BALANCE, MIN_WITHDRAWAL_AMOUNT
+from config import MIN_WITHDRAWAL_AMOUNT
 from services.db_service import fetch_all, fetch_one, now_iso
 from services.level_service import get_active_incomplete_level
 from services.message_service import (
@@ -79,7 +79,6 @@ def get_withdrawal_eligibility(
             "current_active_level_number": int(active_level["level_number"]),
             "balance": balance,
             "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
-            "minimum_retained_balance": float(MIN_RETAINED_BALANCE),
         }
 
     if balance < MIN_WITHDRAWAL_AMOUNT:
@@ -91,7 +90,6 @@ def get_withdrawal_eligibility(
             "current_active_level_number": None,
             "balance": balance,
             "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
-            "minimum_retained_balance": float(MIN_RETAINED_BALANCE),
         }
 
     return {
@@ -102,7 +100,6 @@ def get_withdrawal_eligibility(
         "current_active_level_number": None,
         "balance": balance,
         "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
-        "minimum_retained_balance": float(MIN_RETAINED_BALANCE),
     }
 
 
@@ -129,10 +126,8 @@ def validate_withdrawal_request(
         )
 
     balance = float(eligibility["balance"] or 0.0)
-    if (balance - parsed_amount) < MIN_RETAINED_BALANCE:
-        raise ValueError(
-            f"You must keep at least {int(MIN_RETAINED_BALANCE)} GHS in your account."
-        )
+    if parsed_amount > balance:
+        raise ValueError("Withdrawal amount cannot exceed your current balance.")
 
     clean_network = _clean_network(network)
     if clean_network not in ALLOWED_WITHDRAW_NETWORKS:
@@ -196,18 +191,15 @@ def create_withdrawal_request(
             SET balance = ROUND(balance - ?, 2)
             WHERE user_id = ?
               AND balance >= ?
-              AND (balance - ?) >= ?
             """,
             (
                 validated["amount"],
                 user_id,
                 validated["amount"],
-                validated["amount"],
-                MIN_RETAINED_BALANCE,
             ),
         )
         if updated.rowcount != 1:
-            raise ValueError(f"You must keep at least {int(MIN_RETAINED_BALANCE)} GHS in your account.")
+            raise ValueError("Withdrawal amount cannot exceed your current balance.")
 
         conn.execute(
             """
