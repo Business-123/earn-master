@@ -216,7 +216,6 @@
 
       <div id="depositMiniWalletMount"></div>
       <div id="paymentResultMount"></div>
-      <div id="depositTrustMount"></div>
       <div id="paymentContextWrap" class="depCard"></div>
       <div id="paymentPendingWrap" style="margin-top:14px;"></div>
     `;
@@ -256,30 +255,10 @@
     bindDepositHeaderActions();
 
     const resultWrap = document.getElementById("paymentResultMount");
-    const trustWrap = document.getElementById("depositTrustMount");
     const contextWrap = document.getElementById("paymentContextWrap");
     const pendingWrap = document.getElementById("paymentPendingWrap");
 
     if (resultWrap) resultWrap.innerHTML = "";
-
-    if (trustWrap) {
-      trustWrap.innerHTML = `
-        <div class="depTrustCard ui-skeleton-card">
-          <div class="ui-skeleton-line medium"></div>
-          <div class="depTrustStats" style="margin-top:14px;">
-            <div class="depTrustStat"><div class="ui-skeleton-line medium"></div></div>
-            <div class="depTrustStat"><div class="ui-skeleton-line medium"></div></div>
-            <div class="depTrustStat"><div class="ui-skeleton-line medium"></div></div>
-          </div>
-          <div class="depTrustSteps" style="margin-top:14px;">
-            <div class="depTrustStep"><div class="ui-skeleton-line long"></div></div>
-            <div class="depTrustStep"><div class="ui-skeleton-line long"></div></div>
-            <div class="depTrustStep"><div class="ui-skeleton-line long"></div></div>
-            <div class="depTrustStep"><div class="ui-skeleton-line long"></div></div>
-          </div>
-        </div>
-      `;
-    }
 
     if (contextWrap) {
       contextWrap.innerHTML = `
@@ -296,120 +275,6 @@
     if (pendingWrap) {
       pendingWrap.innerHTML = "";
     }
-  }
-
-  function renderDepositTrustSection(context, pending) {
-    const wrap = document.getElementById("depositTrustMount");
-    if (!wrap) return;
-
-    const title = pending
-      ? "Payment In Progress"
-      : context
-        ? "Payment Action Summary"
-        : "How Level Payments Work";
-
-    const badgeText = pending
-      ? "Pending Verification"
-      : context
-        ? "Ready for Checkout"
-        : "Select Level First";
-
-    const badgeClass = pending
-      ? "pill pill-final-pending"
-      : context
-        ? "pill pill-ready"
-        : "pill pill-neutral";
-
-    const targetText = context
-      ? `Level ${context.level_number}`
-      : "Choose a level from Tasks";
-
-    const amountText = context ? LS.money(context.amount) : "—";
-    const rewardText = context ? LS.money(context.reward || 0) : "—";
-
-    const extraInfo = pending
-      ? `
-        <div class="depTrustNote warn">
-          <i class="fas fa-clock"></i>
-          Complete the checkout on your phone, then return and verify the payment to finish the unlock flow.
-        </div>
-      `
-      : `
-        <div class="depTrustNote">
-          <i class="fas fa-shield-alt"></i>
-          Level unlocks are granted only after payment verification. Random deposits are disabled.
-        </div>
-      `;
-
-    wrap.innerHTML = `
-      <div class="depTrustCard">
-        <div class="depTrustTop">
-          <div>
-            <div class="depTrustEyebrow">Payment Guidance</div>
-
-            <div class="depTrustTitle">
-              ${LS.escapeHtml(title)}
-              ${
-                window.buildHelpTip
-                  ? window.buildHelpTip(
-                      "Payments here are not general wallet deposits. Each payment is tied to a specific level action and only unlocks that selected action after verification."
-                    )
-                  : ""
-              }
-            </div>
-          </div>
-          <span class="${badgeClass}">${LS.escapeHtml(badgeText)}</span>
-        </div>
-
-        <div class="depTrustStats">
-          <div class="depTrustStat">
-            <div class="depTrustStatLabel">Target</div>
-            <div class="depTrustStatValue">${LS.escapeHtml(targetText)}</div>
-          </div>
-          <div class="depTrustStat">
-            <div class="depTrustStatLabel">Amount</div>
-            <div class="depTrustStatValue">${LS.escapeHtml(amountText)}</div>
-          </div>
-          <div class="depTrustStat">
-            <div class="depTrustStatLabel">Reward</div>
-            <div class="depTrustStatValue">${LS.escapeHtml(rewardText)}</div>
-          </div>
-        </div>
-
-        <div class="depTrustSteps">
-          <div class="depTrustStep">
-            <div class="depTrustStepNum">1</div>
-            <div>
-              <div class="depTrustStepTitle">Select a level action</div>
-              <div class="depTrustStepText">Choose the exact level unlock or final-stage action from the Tasks page.</div>
-            </div>
-          </div>
-          <div class="depTrustStep">
-            <div class="depTrustStepNum">2</div>
-            <div>
-              <div class="depTrustStepTitle">Complete checkout securely</div>
-              <div class="depTrustStepText">Use the payment flow linked to that action only. The amount is fixed to the selected level step.</div>
-            </div>
-          </div>
-          <div class="depTrustStep">
-            <div class="depTrustStepNum">3</div>
-            <div>
-              <div class="depTrustStepTitle">Verify payment result</div>
-              <div class="depTrustStepText">The app confirms the transaction before the level is unlocked or progressed.</div>
-            </div>
-          </div>
-          <div class="depTrustStep">
-            <div class="depTrustStepNum">4</div>
-            <div>
-              <div class="depTrustStepTitle">Return to Tasks</div>
-              <div class="depTrustStepText">After verification, go back to Tasks and continue the level flow.</div>
-            </div>
-          </div>
-        </div>
-
-        ${extraInfo}
-      </div>
-    `;
   }
 
   function renderPaymentReturnState() {
@@ -839,13 +704,11 @@
     bindDepositHeaderActions();
 
     const resultWrap = document.getElementById("paymentResultMount");
-    const trustWrap = document.getElementById("depositTrustMount");
     const contextWrap = document.getElementById("paymentContextWrap");
     const pendingWrap = document.getElementById("paymentPendingWrap");
     const userId = LS.state.currentUser?.id || "";
 
     if (resultWrap) resultWrap.innerHTML = "";
-    if (trustWrap) trustWrap.innerHTML = "";
     if (pendingWrap) pendingWrap.innerHTML = "";
     if (!contextWrap) return;
 
@@ -1377,7 +1240,6 @@
     if (!contextWrap || !pendingWrap) return;
 
     renderPaymentReturnState();
-    renderDepositTrustSection(LS.state.paymentContext, LS.state.pendingPayment);
 
     if (!LS.state.paymentContext) {
       renderNoContext(contextWrap);

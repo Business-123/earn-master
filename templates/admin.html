@@ -36,20 +36,13 @@
 <!-- ===================== DASHBOARD ===================== -->
 <section id="dashboard" class="dashboard" hidden>
 
-  <header class="topbar">
-    <div class="topbar-brand">
+  <div class="dashboard-body">
+
+  <nav class="tabbar">
+    <div class="topbar-brand sidebar-brand">
       <span class="brand-mark"><i class="fas fa-crown"></i></span>
       <span class="brand-name">EarnMaster Admin</span>
     </div>
-    <div class="topbar-actions">
-      <input type="search" id="globalSearch" class="search-input" placeholder="Jump to user (id, phone, email)…">
-      <button class="btn btn-ghost btn-sm" id="themeToggle" title="Toggle theme">☀️</button>
-      <span class="topbar-user" id="adminUsername"></span>
-      <button class="btn btn-ghost" id="logoutBtn">Log out</button>
-    </div>
-  </header>
-
-  <nav class="tabbar">
     <button class="tab-btn active" data-tab="overview">Overview</button>
     <button class="tab-btn" data-tab="users">Users</button>
     <button class="tab-btn" data-tab="withdrawals">Withdrawals</button>
@@ -60,6 +53,17 @@
     <button class="tab-btn" data-tab="risk">Risk flags <span class="tab-dot" id="riskDot" hidden></span></button>
     <button class="tab-btn" data-tab="audit">Audit log</button>
   </nav>
+
+  <div class="dashboard-main">
+
+  <header class="topbar">
+    <div class="topbar-actions">
+      <input type="search" id="globalSearch" class="search-input" placeholder="Jump to user (id, phone, email)…">
+      <button class="btn btn-ghost btn-sm" id="themeToggle" title="Toggle theme">☀️</button>
+      <span class="topbar-user" id="adminUsername"></span>
+      <button class="btn btn-ghost" id="logoutBtn">Log out</button>
+    </div>
+  </header>
 
   <main class="content">
 
@@ -341,6 +345,9 @@
     </div>
 
   </main>
+
+  </div>
+  </div>
 </section>
 
 <!-- ===================== USER DETAIL DRAWER ===================== -->
