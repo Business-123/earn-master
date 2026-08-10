@@ -12,7 +12,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from config import DATABASE_PATH  # noqa: E402
 
-BONUS_TASK_REWARD = 10.0
+BONUS_TASK_REWARD = 0.01
 BONUS_TASK_SEED_DATA = [
     {
         "task_key": "bonus_headline_classifier",

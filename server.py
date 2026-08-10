@@ -77,6 +77,28 @@ app.register_blueprint(message_bp)
 
 DATABASE = str(DATABASE_PATH)
 
+# --- Persistence diagnostic (safe to remove once volume mounting is confirmed) ---
+# This does not create or touch the database file - it only reports what it finds,
+# so it's safe to leave running. If you see "PRE-EXISTING" on every deploy, the
+# database is persisting correctly. If you see "NOT FOUND" on every deploy despite
+# users having signed up, DATABASE_PATH is not pointing at a persistent Railway
+# Volume and the file is being recreated from scratch on each deploy.
+try:
+    _db_file = DATABASE_PATH if hasattr(DATABASE_PATH, "exists") else None
+    if _db_file is not None and _db_file.exists():
+        print(
+            f"🗄️  DB CHECK: PRE-EXISTING file at {DATABASE_PATH} "
+            f"({_db_file.stat().st_size} bytes) - data is persisting across deploys."
+        )
+    else:
+        print(
+            f"🗄️  DB CHECK: NOT FOUND at {DATABASE_PATH} - a brand new empty database "
+            f"is about to be created. If users already exist in production, this means "
+            f"the deploy is NOT using a persistent volume at this path."
+        )
+except Exception as _db_check_err:  # never let diagnostics break startup
+    print(f"🗄️  DB CHECK: could not inspect {DATABASE_PATH} ({_db_check_err})")
+
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "").strip()
 PAYSTACK_PUBLIC_KEY = os.getenv("PAYSTACK_PUBLIC_KEY", "").strip()
@@ -92,7 +114,7 @@ MAX_DEPOSIT_GHS = 300.0
 ALLOWED_TASKS = {"imageLabeling", "dataEntry", "socialMedia"}
 PHASE1_REWARD = 30.0
 
-BONUS_TASK_REWARD = 10.0
+BONUS_TASK_REWARD = 0.01
 BONUS_TASK_SEED_DATA = [
     {
         "task_key": "bonus_headline_classifier",
@@ -153,14 +175,10 @@ BONUS_TASK_SEED_DATA = [
 ]
 
 ACCOUNT_STATUS_ACTIVE = "active"
-ACCOUNT_STATUS_RESTRICTED = "restricted"
-ACCOUNT_STATUS_UNDER_REVIEW = "under_review"
 ACCOUNT_STATUS_BLOCKED = "blocked"
 
 VALID_ACCOUNT_STATUSES = {
     ACCOUNT_STATUS_ACTIVE,
-    ACCOUNT_STATUS_RESTRICTED,
-    ACCOUNT_STATUS_UNDER_REVIEW,
     ACCOUNT_STATUS_BLOCKED,
 }
 
@@ -903,248 +921,50 @@ def create_risk_flag(
     return risk_id
 
 
-def add_admin_note(user_id, note, created_by=None):
-    conn = get_db()
-    cur = conn.execute("""
-        INSERT INTO admin_notes (
-            user_id,
-            note,
-            created_by,
-            created_at
-        )
-        VALUES (?, ?, ?, ?)
-    """, (
-        user_id,
-        note,
-        created_by,
-        now(),
-    ))
-    conn.commit()
-    note_id = cur.lastrowid
-    conn.close()
-    return note_id
-
-
-def set_user_account_status(user_id, status, reason=None, actor_id=None):
-    if status not in VALID_ACCOUNT_STATUSES:
-        raise ValueError("Invalid account status")
-
+def set_user_blocked(user_id, blocked, reason=None, actor_id=None):
+    """Simple block/unblock toggle used by the admin portal."""
     conn = get_db()
     user = get_user(conn, user_id)
     if not user:
         conn.close()
         raise ValueError("User not found")
 
-    can_login = 1
-    can_tasks = 1
-    can_deposit = 1
-    can_withdraw = 1
-    flagged = 0
-    restricted_reason = None
-    blocked_reason = None
-    review_reason = None
     session_version = int(user["session_version"] or 1) if "session_version" in user.keys() else 1
-
-    if status == ACCOUNT_STATUS_RESTRICTED:
-        flagged = 1
-        can_withdraw = 0
-        restricted_reason = reason
-    elif status == ACCOUNT_STATUS_UNDER_REVIEW:
-        flagged = 1
-        can_tasks = 0
-        can_withdraw = 0
-        review_reason = reason
-    elif status == ACCOUNT_STATUS_BLOCKED:
-        flagged = 1
-        can_login = 0
-        can_tasks = 0
-        can_deposit = 0
-        can_withdraw = 0
-        blocked_reason = reason
-        session_version += 1
-
-    conn.execute("""
-        UPDATE users
-        SET
-            account_status=?,
-            can_login=?,
-            can_tasks=?,
-            can_deposit=?,
-            can_withdraw=?,
-            flagged=?,
-            session_version=?,
-            restricted_reason=?,
-            blocked_reason=?,
-            review_reason=?
-        WHERE user_id=?
-    """, (
-        status,
-        can_login,
-        can_tasks,
-        can_deposit,
-        can_withdraw,
-        flagged,
-        session_version,
-        restricted_reason,
-        blocked_reason,
-        review_reason,
-        user_id,
-    ))
-    conn.commit()
-    conn.close()
-
-    log_audit_event(
-        action_group="user",
-        action_type="set_account_status",
-        target_type="user",
-        target_id=user_id,
-        summary=f"Set account status for {user_id} to {status}",
-        actor_id=actor_id,
-        reason=reason,
-    )
-
-
-def force_logout_user(user_id, actor_id=None, reason=None):
-    conn = get_db()
-    user = get_user(conn, user_id)
-    if not user:
-        conn.close()
-        raise ValueError("User not found")
-
-    current_version = int(user["session_version"] or 1) if "session_version" in user.keys() else 1
+    if blocked:
+        session_version += 1  # force any active session to log out
 
     conn.execute(
-        "UPDATE users SET session_version=? WHERE user_id=?",
-        (current_version + 1, user_id),
-    )
-    conn.commit()
-    conn.close()
-
-    log_audit_event(
-        action_group="user",
-        action_type="force_logout",
-        target_type="user",
-        target_id=user_id,
-        summary=f"Forced logout for {user_id}",
-        actor_id=actor_id,
-        reason=reason,
-    )
-
-
-def set_user_permission(user_id, permission_key, allowed, actor_id=None, reason=None):
-    valid_keys = {"can_login", "can_tasks", "can_deposit", "can_withdraw"}
-    if permission_key not in valid_keys:
-        raise ValueError("Invalid permission key")
-
-    conn = get_db()
-    user = get_user(conn, user_id)
-    if not user:
-        conn.close()
-        raise ValueError("User not found")
-
-    can_login = bool(user["can_login"])
-    can_tasks = bool(user["can_tasks"])
-    can_deposit = bool(user["can_deposit"])
-    can_withdraw = bool(user["can_withdraw"])
-
-    if permission_key == "can_login":
-        can_login = bool(allowed)
-    elif permission_key == "can_tasks":
-        can_tasks = bool(allowed)
-    elif permission_key == "can_deposit":
-        can_deposit = bool(allowed)
-    elif permission_key == "can_withdraw":
-        can_withdraw = bool(allowed)
-
-    session_version = int(user["session_version"] or 1) if "session_version" in user.keys() else 1
-
-    # If login gets disabled, invalidate active sessions immediately
-    if permission_key == "can_login" and not allowed:
-        session_version += 1
-
-    current_status = user["account_status"] or ACCOUNT_STATUS_ACTIVE
-
-    # Keep account status aligned with permissions
-    if not can_login:
-        account_status = ACCOUNT_STATUS_BLOCKED
-        flagged = 1
-        restricted_reason = None
-        blocked_reason = reason or "Login access disabled by admin"
-        review_reason = None
-    elif current_status == ACCOUNT_STATUS_UNDER_REVIEW:
-        account_status = ACCOUNT_STATUS_UNDER_REVIEW
-        flagged = 1
-        restricted_reason = None
-        blocked_reason = None
-        review_reason = user["review_reason"] or reason
-    elif not (can_tasks and can_deposit and can_withdraw):
-        account_status = ACCOUNT_STATUS_RESTRICTED
-        flagged = 1
-        restricted_reason = reason or "One or more access permissions disabled"
-        blocked_reason = None
-        review_reason = None
-    else:
-        account_status = ACCOUNT_STATUS_ACTIVE
-        flagged = 0
-        restricted_reason = None
-        blocked_reason = None
-        review_reason = None
-
-    conn.execute("""
+        """
         UPDATE users
         SET
-            can_login=?,
-            can_tasks=?,
-            can_deposit=?,
-            can_withdraw=?,
             account_status=?,
+            can_login=?,
             flagged=?,
             session_version=?,
-            restricted_reason=?,
-            blocked_reason=?,
-            review_reason=?
+            blocked_reason=?
         WHERE user_id=?
-    """, (
-        1 if can_login else 0,
-        1 if can_tasks else 0,
-        1 if can_deposit else 0,
-        1 if can_withdraw else 0,
-        account_status,
-        flagged,
-        session_version,
-        restricted_reason,
-        blocked_reason,
-        review_reason,
-        user_id,
-    ))
+        """,
+        (
+            ACCOUNT_STATUS_BLOCKED if blocked else ACCOUNT_STATUS_ACTIVE,
+            0 if blocked else 1,
+            1 if blocked else 0,
+            session_version,
+            reason if blocked else None,
+            user_id,
+        ),
+    )
     conn.commit()
     conn.close()
 
     log_audit_event(
         action_group="user",
-        action_type="set_permission",
+        action_type="block" if blocked else "unblock",
         target_type="user",
         target_id=user_id,
-        summary=(
-            f"Set {permission_key} for {user_id} to "
-            f"{'allowed' if allowed else 'denied'}; account status now {account_status}"
-        ),
+        summary=f"{'Blocked' if blocked else 'Unblocked'} {user_id}",
         actor_id=actor_id,
         reason=reason,
     )
-
-
-PERMISSION_FIELD_MAP = {
-    "tasks": "can_tasks",
-    "deposit": "can_deposit",
-    "withdraw": "can_withdraw",
-}
-
-PERMISSION_LABEL_MAP = {
-    "tasks": "Task",
-    "deposit": "Deposit",
-    "withdraw": "Withdrawal",
-}
 
 
 def get_admin_actor_id():
@@ -1166,20 +986,6 @@ def parse_json_text(value, fallback=None):
         return json.loads(value or "{}")
     except Exception:
         return fallback
-
-
-def serialize_user_admin(row):
-    data = dict(row)
-    data.pop("payment_email", None)
-    data["email"] = data.get("contact_email") or data.get("email")
-    data["full_name"] = data.get("full_name") or " ".join(filter(None, [data.get("firstname"), data.get("surname")])) or "N/A"
-    data["can_login"] = bool(data.get("can_login"))
-    data["can_tasks"] = bool(data.get("can_tasks"))
-    data["can_deposit"] = bool(data.get("can_deposit"))
-    data["can_withdraw"] = bool(data.get("can_withdraw"))
-    data["flagged"] = bool(data.get("flagged"))
-    data["session_version"] = int(data.get("session_version") or 1)
-    return data
 
 
 def serialize_payment_admin(row):
@@ -1366,14 +1172,6 @@ def serialize_request_admin(conn, row):
         "name": name,
         "user_state": user,
     }
-
-def serialize_audit_log(row):
-    return dict(row)
-
-
-def serialize_risk_flag(row):
-    return dict(row)
-
 
 def apply_payment_decision(reference, decision_value, actor_id=None, reason=None):
     if decision_value not in ("approve", "reject", "hold", "mismatch"):
@@ -1605,131 +1403,6 @@ def parse_payload(payload_text):
     except Exception:
         return {}
     
-def normalize_admin_user_row(row):
-    if not row:
-        return None
-
-    data = dict(row)
-    data.pop("payment_email", None)
-    data["email"] = data.get("contact_email") or data.get("email")
-
-    data["account_status"] = data.get("account_status") or "active"
-    data["can_login"] = bool(data.get("can_login", 1))
-    data["can_tasks"] = bool(data.get("can_tasks", 1))
-    data["can_deposit"] = bool(data.get("can_deposit", 1))
-    data["can_withdraw"] = bool(data.get("can_withdraw", 1))
-    data["flagged"] = bool(data.get("flagged", 0))
-    data["session_version"] = int(data.get("session_version") or 1)
-
-    return data
-
-
-def serialize_admin_withdrawal_row(row):
-    payload = parse_payload(row["payload"])
-    return {
-        "id": row["id"],
-        "status": row["status"],
-        "created_at": row["created_at"],
-        "decided_at": row["decided_at"],
-        "amount": payload.get("amount"),
-        "network": payload.get("network") or payload.get("method") or "",
-        "number": payload.get("number") or payload.get("phone") or "",
-        "name": payload.get("name") or payload.get("accountName") or payload.get("account_name") or "",
-        "method_id": payload.get("method_id"),
-    }
-
-
-def build_admin_level_summary(conn, user_id):
-    summary = {
-        "active_level_id": None,
-        "active_level_number": None,
-        "active_level_status": None,
-        "completed_levels_count": 0,
-        "total_levels": 0,
-        "progress_percent": 0.0,
-        "latest_completed_level_number": None,
-    }
-
-    if not table_exists(conn, "user_levels") or not table_exists(conn, "level_catalog"):
-        return summary
-
-    total_row = conn.execute("""
-        SELECT COUNT(*) AS total_levels
-        FROM level_catalog
-        WHERE is_active = 1
-    """).fetchone()
-
-    completed_row = conn.execute("""
-        SELECT COUNT(*) AS completed_levels_count
-        FROM user_levels
-        WHERE user_id = ?
-          AND status = 'completed'
-    """, (user_id,)).fetchone()
-
-    active_row = conn.execute("""
-        SELECT
-            ul.level_id,
-            ul.status,
-            lc.level_number
-        FROM user_levels ul
-        JOIN level_catalog lc ON lc.id = ul.level_id
-        WHERE ul.user_id = ?
-          AND ul.status IN ('active_base', 'active_final_stage_pending', 'active_final_stage_open')
-        ORDER BY ul.started_at ASC, ul.id ASC
-        LIMIT 1
-    """, (user_id,)).fetchone()
-
-    latest_completed_row = conn.execute("""
-        SELECT lc.level_number
-        FROM user_levels ul
-        JOIN level_catalog lc ON lc.id = ul.level_id
-        WHERE ul.user_id = ?
-          AND ul.status = 'completed'
-        ORDER BY ul.completed_at DESC, ul.id DESC
-        LIMIT 1
-    """, (user_id,)).fetchone()
-
-    total_levels = int((total_row["total_levels"] or 0) if total_row else 0)
-    completed_levels_count = int((completed_row["completed_levels_count"] or 0) if completed_row else 0)
-    progress_percent = round((completed_levels_count / total_levels) * 100, 2) if total_levels else 0.0
-
-    summary["total_levels"] = total_levels
-    summary["completed_levels_count"] = completed_levels_count
-    summary["progress_percent"] = progress_percent
-
-    if active_row:
-        summary["active_level_id"] = active_row["level_id"]
-        summary["active_level_number"] = active_row["level_number"]
-        summary["active_level_status"] = active_row["status"]
-    elif column_exists(conn, "users", "current_active_level_id"):
-        fallback_active = conn.execute(
-            """
-            SELECT
-                u.current_active_level_id AS level_id,
-                lc.level_number,
-                ul.status
-            FROM users u
-            LEFT JOIN level_catalog lc ON lc.id = u.current_active_level_id
-            LEFT JOIN user_levels ul
-                ON ul.user_id = u.user_id
-               AND ul.level_id = u.current_active_level_id
-            WHERE u.user_id = ?
-              AND u.current_active_level_id IS NOT NULL
-            LIMIT 1
-            """,
-            (user_id,),
-        ).fetchone()
-        if fallback_active:
-            summary["active_level_id"] = fallback_active["level_id"]
-            summary["active_level_number"] = fallback_active["level_number"]
-            summary["active_level_status"] = fallback_active["status"]
-
-    if latest_completed_row:
-        summary["latest_completed_level_number"] = latest_completed_row["level_number"]
-
-    return summary
-
-
 def paystack_headers():
     return {
         "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
@@ -2447,7 +2120,7 @@ def get_request_status(rid):
 
 
 # ======================
-# ADMIN - CURRENT / OLD ENDPOINTS
+# ADMIN
 # ======================
 @app.post("/api/admin/login")
 def admin_login():
@@ -2459,12 +2132,7 @@ def admin_login():
     admin = conn.execute("SELECT * FROM admin WHERE username=?", (username,)).fetchone()
     conn.close()
 
-    if not admin:
-        # If admin doesn't exist, maybe credentials in .env are wrong or seed didn't run
-        # Return a generic error to avoid leaking info
-        return jsonify({"error": "Invalid credentials"}), 401
-
-    if not check_password_hash(admin["password"], password):
+    if not admin or not check_password_hash(admin["password"], password):
         return jsonify({"error": "Invalid credentials"}), 401
 
     session.permanent = True
@@ -2487,219 +2155,50 @@ def admin_ping():
     return jsonify({"admin": require_admin()})
 
 
-@app.get("/api/admin/deposits")
-def admin_deposits():
-    if not require_admin():
-        return jsonify({"error": "Unauthorized"}), 401
-
-    # Deposits are now automatic, so the old deposits table remains empty.
-    return jsonify([])
-
-
-@app.get("/api/admin/withdrawals")
-def admin_withdrawals():
-    if not require_admin():
-        return jsonify({"error": "Unauthorized"}), 401
-
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM requests WHERE kind='withdrawal' AND status='pending' ORDER BY created_at DESC"
-    ).fetchall()
-    conn.close()
-
-    return jsonify([dict(r) for r in rows])
-
-
-@app.get("/api/admin/history")
-def admin_history():
-    if not require_admin():
-        return jsonify({"error": "Unauthorized"}), 401
-
-    conn = get_db()
-
-    manual_rows = conn.execute(
-        "SELECT * FROM requests WHERE status!='pending' ORDER BY created_at DESC"
-    ).fetchall()
-
-    payment_rows = conn.execute("""
-        SELECT reference, user_id, email, amount_ghs, channel, status, created_at, paid_at
-        FROM payments
-        WHERE status != 'initialized'
-        ORDER BY created_at DESC
-    """).fetchall()
-
-    conn.close()
-
-    merged = [dict(r) for r in manual_rows]
-
-    for r in payment_rows:
-        merged.append({
-            "id": r["reference"],
-            "kind": "deposit",
-            "user_id": r["user_id"],
-            "payload": json.dumps({
-                "email": r["email"],
-                "amount": r["amount_ghs"],
-                "network": r["channel"],
-            }),
-            "status": r["status"],
-            "created_at": r["created_at"],
-            "decided_at": r["paid_at"],
-        })
-
-    merged.sort(key=lambda x: x.get("created_at") or "", reverse=True)
-    return jsonify(merged)
-
-
-@app.get("/api/admin/users")
-def admin_users():
-    if not require_admin():
-        return jsonify({"error": "Unauthorized"}), 401
-
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT
-            user_id,
-            firstname,
-            surname,
-            phone,
-            COALESCE(NULLIF(TRIM(contact_email), ''), email) AS email,
-            COALESCE(NULLIF(TRIM(contact_email), ''), email) AS contact_email,
-            created_at,
-            last_seen,
-            balance
-        FROM users
-        ORDER BY created_at DESC
-    """).fetchall()
-    conn.close()
-
-    return jsonify([dict(r) for r in rows])
-
-
-@app.post("/api/admin/decision")
-def decision():
-    if not require_admin():
-        return jsonify({"error": "Unauthorized"}), 401
-
-    data = request.json or {}
-    rid = data.get("id")
-    decision_value = data.get("decision")
-
-    if decision_value not in ("approved", "rejected"):
-        return jsonify({"error": "Invalid decision"}), 400
-
-    conn = get_db()
-    req = conn.execute("SELECT * FROM requests WHERE id=?", (rid,)).fetchone()
-    if not req:
-        conn.close()
-        return jsonify({"error": "Request not found"}), 404
-
-    if req["status"] != "pending":
-        conn.close()
-        return jsonify({"error": "Request has already been decided"}), 409
-
-    try:
-        payload = json.loads(req["payload"] or "{}")
-    except Exception:
-        payload = {}
-
-    try:
-        amount = clamp_amount(payload.get("amount"))
-    except Exception:
-        amount = None
-
-    if req["kind"] == "withdrawal":
-        if amount is None or amount <= 0:
-            conn.close()
-            return jsonify({"error": "Withdrawal request payload is invalid."}), 400
-
-        if decision_value == "rejected":
-            conn.execute(
-                "UPDATE users SET balance = ROUND(COALESCE(balance, 0) + ?, 2) WHERE user_id=?",
-                (amount, req["user_id"]),
-            )
-
-    conn.execute(
-        "UPDATE requests SET status=?, decided_at=? WHERE id=?",
-        (decision_value, now(), rid),
-    )
-
-    conn.commit()
-    conn.close()
-    return jsonify({"status": "updated"})
-
-
-# ======================
-# ADMIN - NEW / RICHER ENDPOINTS
-# ======================
 @app.get("/api/admin/overview")
 @admin_api_required
 def admin_overview():
     conn = get_db()
 
+    total_users = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+
     pending_withdrawals = conn.execute(
         "SELECT COUNT(*) AS n FROM requests WHERE kind='withdrawal' AND status='pending'"
     ).fetchone()["n"]
 
-    held_withdrawals = conn.execute(
-        "SELECT COUNT(*) AS n FROM requests WHERE kind='withdrawal' AND status='held'"
-    ).fetchone()["n"]
-
-    if table_exists(conn, "payment_intents"):
-        payments_needing_review = conn.execute(
-            """
-            SELECT COUNT(*) AS n
-            FROM payment_intents
-            WHERE status IN ('initialized', 'pending', 'held', 'abandoned', 'expired', 'failed')
-            """
-        ).fetchone()["n"]
-        successful_payments = conn.execute(
-            """
-            SELECT COUNT(*) AS n
-            FROM payment_intents
-            WHERE status = 'success' OR verified_at IS NOT NULL
-            """
-        ).fetchone()["n"]
-    else:
-        payments_needing_review = conn.execute(
-            "SELECT COUNT(*) AS n FROM payments WHERE status IN ('initialized', 'held', 'amount_mismatch', 'rejected')"
-        ).fetchone()["n"]
-        successful_payments = conn.execute(
-            "SELECT COUNT(*) AS n FROM payments WHERE credited_at IS NOT NULL"
-        ).fetchone()["n"]
-
+    pending_payments = 0
     if table_exists(conn, "manual_payments"):
         expire_pending_manual_payments(conn)
-        payments_needing_review += conn.execute(
+        pending_payments += conn.execute(
             "SELECT COUNT(*) AS n FROM manual_payments WHERE status='pending'"
         ).fetchone()["n"]
-        successful_payments += conn.execute(
-            "SELECT COUNT(*) AS n FROM manual_payments WHERE status='approved'"
+    if table_exists(conn, "payment_intents"):
+        pending_payments += conn.execute(
+            "SELECT COUNT(*) AS n FROM payment_intents WHERE status IN ('initialized', 'pending', 'held')"
         ).fetchone()["n"]
+
+    total_balance = conn.execute(
+        "SELECT COALESCE(SUM(balance), 0) AS total FROM users"
+    ).fetchone()["total"]
 
     blocked_users = conn.execute(
         "SELECT COUNT(*) AS n FROM users WHERE account_status='blocked'"
     ).fetchone()["n"]
 
-    flagged_users = conn.execute(
-        "SELECT COUNT(*) AS n FROM users WHERE flagged=1 OR account_status='under_review'"
-    ).fetchone()["n"]
-
     conn.close()
 
     return jsonify({
+        "total_users": total_users,
         "pending_withdrawals": pending_withdrawals,
-        "held_withdrawals": held_withdrawals,
-        "payments_needing_review": payments_needing_review,
-        "successful_payments": successful_payments,
+        "pending_payments": pending_payments,
+        "total_balance": round(float(total_balance or 0), 2),
         "blocked_users": blocked_users,
-        "flagged_users": flagged_users,
     })
 
 
-@app.get("/api/admin/users/full")
+@app.get("/api/admin/users")
 @admin_api_required
-def admin_users_full():
+def admin_users():
     conn = get_db()
     rows = conn.execute("""
         SELECT
@@ -2708,184 +2207,180 @@ def admin_users_full():
             surname,
             phone,
             COALESCE(NULLIF(TRIM(contact_email), ''), email) AS email,
-            COALESCE(NULLIF(TRIM(contact_email), ''), email) AS contact_email,
             created_at,
             last_seen,
             balance,
             account_status,
-            can_login,
-            can_tasks,
-            can_deposit,
-            can_withdraw,
-            flagged,
-            session_version,
-            restricted_reason,
-            blocked_reason,
-            review_reason
+            can_login
         FROM users
         ORDER BY created_at DESC
     """).fetchall()
+    conn.close()
 
-    result = []
+    users = []
     for row in rows:
-        user = serialize_user_admin(row)
-        level_summary = build_admin_level_summary(conn, user["user_id"])
-        user["current_active_level_id"] = level_summary.get("active_level_id")
-        user["current_active_level_number"] = level_summary.get("active_level_number")
-        user["current_active_level_status"] = level_summary.get("active_level_status")
-        result.append(user)
+        item = dict(row)
+        item["full_name"] = " ".join(filter(None, [item.get("firstname"), item.get("surname")])) or "N/A"
+        item["blocked"] = (item.get("account_status") == ACCOUNT_STATUS_BLOCKED) or not bool(item.get("can_login", 1))
+        users.append(item)
 
-    conn.close()
-    return jsonify(result)
+    return jsonify(users)
 
 
-@app.get("/api/admin/users/<user_id>")
-def admin_user_detail(user_id):
-    if not require_admin():
-        return jsonify({"error": "Unauthorized"}), 401
+@app.post("/api/admin/users/<user_id>/toggle-block")
+@admin_api_required
+def admin_toggle_block_user(user_id):
+    data = request.json or {}
+    blocked = bool(data.get("blocked"))
+    reason = (data.get("reason") or "").strip() or None
+
+    try:
+        set_user_blocked(
+            user_id=user_id,
+            blocked=blocked,
+            reason=reason,
+            actor_id=get_admin_actor_id(),
+        )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     conn = get_db()
+    user = get_user_admin_state(conn, user_id)
+    conn.close()
+    return jsonify({"status": "updated", "user": user})
 
-    user_row = conn.execute(
-        "SELECT * FROM users WHERE user_id=?",
-        (user_id,),
+
+@app.get("/api/admin/tasks")
+@admin_api_required
+def admin_tasks():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT id, task_key, title, category_key, reward, sort_order, is_active
+        FROM bonus_task_catalog
+        ORDER BY sort_order ASC, id ASC
+    """).fetchall()
+    conn.close()
+
+    tasks = [
+        {
+            "id": row["id"],
+            "task_key": row["task_key"],
+            "title": row["title"],
+            "category_key": row["category_key"],
+            "reward": float(row["reward"]),
+            "sort_order": row["sort_order"],
+            "is_active": bool(row["is_active"]),
+        }
+        for row in rows
+    ]
+    return jsonify(tasks)
+
+
+@app.post("/api/admin/tasks/<int:task_id>/reward")
+@admin_api_required
+def admin_update_task_reward(task_id):
+    data = request.json or {}
+    reason = (data.get("reason") or "").strip() or None
+
+    try:
+        reward = float(data.get("reward"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Reward must be a number."}), 400
+
+    if reward < 0:
+        return jsonify({"error": "Reward cannot be negative."}), 400
+
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id, title, reward FROM bonus_task_catalog WHERE id = ?",
+        (task_id,),
     ).fetchone()
-
-    if not user_row:
+    if not existing:
         conn.close()
-        return jsonify({"error": "User not found"}), 404
+        return jsonify({"error": "Task not found."}), 404
 
-    payments = []
-    if table_exists(conn, "payments"):
-        payment_rows = conn.execute("""
-            SELECT
-                reference,
-                user_id,
-                email,
-                amount_ghs,
-                status,
-                credited_at,
-                created_at
-            FROM payments
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT 5
-        """, (user_id,)).fetchall()
+    reward = round(reward, 2)
+    conn.execute(
+        "UPDATE bonus_task_catalog SET reward = ? WHERE id = ?",
+        (reward, task_id),
+    )
+    conn.commit()
 
-        payments = []
-        for row in payment_rows:
-            item = dict(row)
-            item["credited"] = bool(item.get("credited_at"))
-            payments.append(item)
+    try:
+        log_audit_event(
+            action_group="tasks",
+            action_type="update_task_reward",
+            target_type="bonus_task",
+            target_id=str(task_id),
+            summary=f"Updated reward for task '{existing['title']}' to {reward}",
+            actor_id=get_admin_actor_id(),
+            reason=reason,
+            metadata_json=json.dumps(
+                {"previous_reward": float(existing["reward"]), "new_reward": reward}
+            ),
+        )
+    except Exception:
+        pass
 
-    withdrawals = []
-    if table_exists(conn, "requests"):
-        withdrawal_rows = conn.execute("""
-            SELECT *
-            FROM requests
-            WHERE user_id = ?
-              AND kind = 'withdrawal'
-            ORDER BY created_at DESC
-            LIMIT 5
-        """, (user_id,)).fetchall()
+    row = conn.execute(
+        "SELECT id, task_key, title, category_key, reward, sort_order, is_active FROM bonus_task_catalog WHERE id = ?",
+        (task_id,),
+    ).fetchone()
+    conn.close()
 
-        withdrawals = [serialize_admin_withdrawal_row(row) for row in withdrawal_rows]
-
-    notes = []
-    if table_exists(conn, "admin_notes"):
-        note_rows = conn.execute("""
-            SELECT *
-            FROM admin_notes
-            WHERE user_id = ?
-            ORDER BY created_at DESC
-            LIMIT 20
-        """, (user_id,)).fetchall()
-        notes = [dict(row) for row in note_rows]
-
-    result = {
-        "user": normalize_admin_user_row(user_row),
-        "payments": payments,
-        "withdrawals": withdrawals,
-        "notes": notes,
-        "level_summary": build_admin_level_summary(conn, user_id),
+    task = {
+        "id": row["id"],
+        "task_key": row["task_key"],
+        "title": row["title"],
+        "category_key": row["category_key"],
+        "reward": float(row["reward"]),
+        "sort_order": row["sort_order"],
+        "is_active": bool(row["is_active"]),
     }
+    return jsonify({"status": "updated", "task": task})
 
+
+@app.get("/api/admin/withdrawals")
+@admin_api_required
+def admin_withdrawals():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT *
+        FROM requests
+        WHERE kind='withdrawal'
+        ORDER BY
+            CASE status WHEN 'pending' THEN 0 ELSE 1 END,
+            created_at DESC
+    """).fetchall()
+
+    result = [serialize_request_admin(conn, r) for r in rows]
     conn.close()
     return jsonify(result)
 
 
-@app.post("/api/admin/users/<user_id>/status")
+@app.post("/api/admin/withdrawals/<request_id>/decision")
 @admin_api_required
-def admin_user_set_status(user_id):
+def admin_withdrawal_decision(request_id):
     data = request.json or {}
-    status = (data.get("status") or "").strip()
+    decision_value = (data.get("decision") or "").strip()
     reason = (data.get("reason") or "").strip() or None
 
     try:
-        set_user_account_status(
-            user_id=user_id,
-            status=status,
-            reason=reason,
-            actor_id=get_admin_actor_id(),
-        )
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-    conn = get_db()
-    user = get_user_admin_state(conn, user_id)
-    conn.close()
-    return jsonify({"status": "updated", "user": user})
-
-
-@app.post("/api/admin/users/<user_id>/force-logout")
-@admin_api_required
-def admin_user_force_logout(user_id):
-    data = request.json or {}
-    reason = (data.get("reason") or "").strip() or None
-
-    try:
-        force_logout_user(
-            user_id=user_id,
+        req = apply_withdrawal_decision(
+            request_id=request_id,
+            decision_value=decision_value,
             actor_id=get_admin_actor_id(),
             reason=reason,
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    conn = get_db()
-    user = get_user_admin_state(conn, user_id)
-    conn.close()
-    return jsonify({"status": "updated", "user": user})
+    return jsonify({"status": "updated", "request": req})
 
 
-@app.post("/api/admin/users/<user_id>/permission")
+@app.get("/api/admin/payments")
 @admin_api_required
-def admin_user_set_permission(user_id):
-    data = request.json or {}
-    permission_key = (data.get("permission_key") or "").strip()
-    allowed = bool(data.get("allowed"))
-    reason = (data.get("reason") or "").strip() or None
-
-    try:
-        set_user_permission(
-            user_id=user_id,
-            permission_key=permission_key,
-            allowed=allowed,
-            actor_id=get_admin_actor_id(),
-            reason=reason,
-        )
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-
-    conn = get_db()
-    user = get_user_admin_state(conn, user_id)
-    conn.close()
-    return jsonify({"status": "updated", "user": user})
-
-
-@app.get("/api/admin/payments/full")
-@admin_api_required
-def admin_payments_full():
+def admin_payments():
     conn = get_db()
 
     rows: list[dict[str, Any]] = []
@@ -2914,6 +2409,7 @@ def admin_payments_full():
         legacy_rows = conn.execute("""
             SELECT *
             FROM payments
+            WHERE status != 'initialized'
             ORDER BY created_at DESC, id DESC
         """).fetchall()
 
@@ -2927,15 +2423,17 @@ def admin_payments_full():
             seen_refs.add(ref)
             rows.append(serialized)
 
-    for row in get_admin_manual_payments(conn):
-        serialized = serialize_admin_manual_payment(row)
-        if not serialized:
-            continue
-        ref = str(serialized.get("reference") or "")
-        if ref and ref in seen_refs:
-            continue
-        seen_refs.add(ref)
-        rows.append(serialized)
+    if table_exists(conn, "manual_payments"):
+        expire_pending_manual_payments(conn)
+        for row in get_admin_manual_payments(conn):
+            serialized = serialize_admin_manual_payment(row)
+            if not serialized:
+                continue
+            ref = str(serialized.get("reference") or "")
+            if ref and ref in seen_refs:
+                continue
+            seen_refs.add(ref)
+            rows.append(serialized)
 
     user_ids = {str(item.get("user_id")) for item in rows if item.get("user_id")}
     if user_ids:
@@ -2951,7 +2449,10 @@ def admin_payments_full():
         for item in rows:
             item["full_name"] = names.get(item.get("user_id"), item.get("full_name") or "N/A")
 
+    # Pending items first, most recent first within each group
+    rows.sort(key=lambda item: (item.get("status") != "pending", str(item.get("created_at") or "")), reverse=False)
     rows.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    rows.sort(key=lambda item: item.get("status") != "pending")
     conn.close()
 
     return jsonify(rows)
@@ -3014,54 +2515,247 @@ def admin_payment_decision(reference):
     return jsonify({"status": "updated", "payment": payment})
 
 
-@app.get("/api/admin/withdrawals/full")
+# ----------------------
+# USER DETAIL / BALANCE / PERMISSIONS / NOTES
+# ----------------------
+@app.get("/api/admin/users/<user_id>")
 @admin_api_required
-def admin_withdrawals_full():
+def admin_user_detail(user_id):
     conn = get_db()
-    rows = conn.execute("""
-        SELECT *
-        FROM requests
-        WHERE kind='withdrawal'
-        ORDER BY created_at DESC
-    """).fetchall()
+    state = get_user_admin_state(conn, user_id)
+    if not state:
+        conn.close()
+        return jsonify({"error": "User not found"}), 404
 
-    result = [serialize_request_admin(conn, r) for r in rows]
+    row = conn.execute(
+        "SELECT firstname, surname, full_name, current_active_level_id FROM users WHERE user_id=?",
+        (user_id,),
+    ).fetchone()
+    if row:
+        state["firstname"] = row["firstname"]
+        state["surname"] = row["surname"]
+        state["full_name"] = row["full_name"] or " ".join(filter(None, [row["firstname"], row["surname"]])) or "N/A"
+
+    levels = []
+    if table_exists(conn, "user_levels"):
+        levels = rows_to_list(conn.execute(
+            """
+            SELECT ul.*, lc.level_number, lc.unlock_fee, lc.completion_reward, lc.total_task_count
+            FROM user_levels ul
+            JOIN level_catalog lc ON lc.id = ul.level_id
+            WHERE ul.user_id = ?
+            ORDER BY lc.level_number ASC
+            """,
+            (user_id,),
+        ).fetchall())
+
+    notes = []
+    if table_exists(conn, "admin_notes"):
+        notes = rows_to_list(conn.execute(
+            "SELECT * FROM admin_notes WHERE user_id=? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall())
+
+    flags = []
+    if table_exists(conn, "risk_flags"):
+        flags = rows_to_list(conn.execute(
+            "SELECT * FROM risk_flags WHERE user_id=? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall())
+
+    audit = []
+    if table_exists(conn, "audit_logs"):
+        audit = rows_to_list(conn.execute(
+            "SELECT * FROM audit_logs WHERE target_type='user' AND target_id=? ORDER BY created_at DESC LIMIT 50",
+            (user_id,),
+        ).fetchall())
+
+    withdrawal_summary = get_pending_withdrawal_summary(conn, user_id)
     conn.close()
-    return jsonify(result)
+
+    return jsonify({
+        "user": state,
+        "levels": levels,
+        "notes": notes,
+        "risk_flags": flags,
+        "audit_log": audit,
+        "pending_withdrawals": withdrawal_summary,
+    })
 
 
-@app.post("/api/admin/withdrawals/<request_id>/decision")
+def rows_to_list(rows):
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/admin/users/<user_id>/balance")
 @admin_api_required
-def admin_withdrawal_decision(request_id):
+def admin_adjust_balance(user_id):
     data = request.json or {}
-    decision_value = (data.get("decision") or "").strip()
     reason = (data.get("reason") or "").strip() or None
+    try:
+        delta = float(data.get("amount"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Amount must be a number."}), 400
+    if delta == 0:
+        return jsonify({"error": "Amount cannot be zero."}), 400
+    if not reason:
+        return jsonify({"error": "A reason is required for manual balance adjustments."}), 400
+
+    conn = get_db()
+    user = get_user(conn, user_id)
+    if not user:
+        conn.close()
+        return jsonify({"error": "User not found"}), 404
+
+    old_balance = float(user["balance"] or 0)
+    new_balance = round(old_balance + delta, 2)
+    if new_balance < 0:
+        conn.close()
+        return jsonify({"error": "This adjustment would take the user's balance below zero."}), 400
+
+    conn.execute("UPDATE users SET balance=? WHERE user_id=?", (new_balance, user_id))
+    conn.commit()
 
     try:
-        req = apply_withdrawal_decision(
-            request_id=request_id,
-            decision_value=decision_value,
-            actor_id=get_admin_actor_id(),
-            reason=reason,
+        create_message(
+            conn,
+            user_id=user_id,
+            title="Balance adjusted" if delta > 0 else "Balance adjusted",
+            body=(
+                f"An admin adjusted your balance by {'+' if delta > 0 else ''}{delta:.2f} GHS. "
+                f"New balance: {new_balance:.2f} GHS. Reason: {reason}."
+            ),
+            category="system",
         )
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+    except Exception:
+        pass
+    conn.close()
 
-    return jsonify({"status": "updated", "request": req})
+    log_audit_event(
+        action_group="user",
+        action_type="credit_balance" if delta > 0 else "debit_balance",
+        target_type="user",
+        target_id=user_id,
+        summary=f"{'Credited' if delta > 0 else 'Debited'} {abs(delta):.2f} GHS {'to' if delta > 0 else 'from'} {user_id}",
+        actor_id=get_admin_actor_id(),
+        reason=reason,
+        metadata_json=json.dumps({"old_balance": old_balance, "new_balance": new_balance, "delta": delta}),
+    )
+
+    return jsonify({"status": "updated", "old_balance": old_balance, "new_balance": new_balance})
 
 
+@app.post("/api/admin/users/<user_id>/permissions")
+@admin_api_required
+def admin_update_permissions(user_id):
+    data = request.json or {}
+    allowed = {"can_tasks", "can_deposit", "can_withdraw", "flagged"}
+    updates = {k: bool(v) for k, v in data.items() if k in allowed}
+    if not updates:
+        return jsonify({"error": "No valid permission fields supplied."}), 400
+    reason = (data.get("reason") or "").strip() or None
+
+    conn = get_db()
+    user = get_user(conn, user_id)
+    if not user:
+        conn.close()
+        return jsonify({"error": "User not found"}), 404
+
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    conn.execute(
+        f"UPDATE users SET {set_clause} WHERE user_id=?",
+        (*[1 if v else 0 for v in updates.values()], user_id),
+    )
+    conn.commit()
+    state = get_user_admin_state(conn, user_id)
+    conn.close()
+
+    log_audit_event(
+        action_group="user",
+        action_type="update_permissions",
+        target_type="user",
+        target_id=user_id,
+        summary=f"Updated permissions for {user_id}: {updates}",
+        actor_id=get_admin_actor_id(),
+        reason=reason,
+        metadata_json=json.dumps(updates),
+    )
+
+    return jsonify({"status": "updated", "user": state})
+
+
+@app.post("/api/admin/users/<user_id>/notes")
+@admin_api_required
+def admin_add_note(user_id):
+    data = request.json or {}
+    note = (data.get("note") or "").strip()
+    if not note:
+        return jsonify({"error": "Note cannot be empty."}), 400
+
+    conn = get_db()
+    user = get_user(conn, user_id)
+    if not user:
+        conn.close()
+        return jsonify({"error": "User not found"}), 404
+
+    actor = get_admin_actor_id()
+    conn.execute(
+        "INSERT INTO admin_notes (user_id, note, created_by, created_at) VALUES (?, ?, ?, ?)",
+        (user_id, note, actor, now()),
+    )
+    conn.commit()
+    notes = rows_to_list(conn.execute(
+        "SELECT * FROM admin_notes WHERE user_id=? ORDER BY created_at DESC", (user_id,)
+    ).fetchall())
+    conn.close()
+    return jsonify({"status": "created", "notes": notes})
+
+
+# ----------------------
+# AUDIT LOG
+# ----------------------
+@app.get("/api/admin/audit-logs")
+@admin_api_required
+def admin_audit_logs():
+    group = (request.args.get("group") or "").strip()
+    q = (request.args.get("q") or "").strip()
+    limit = min(int(request.args.get("limit", 200) or 200), 500)
+
+    conn = get_db()
+    query = "SELECT * FROM audit_logs WHERE 1=1"
+    params: list[Any] = []
+    if group:
+        query += " AND action_group=?"
+        params.append(group)
+    if q:
+        query += " AND (target_id LIKE ? OR summary LIKE ? OR actor_id LIKE ?)"
+        like = f"%{q}%"
+        params.extend([like, like, like])
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+
+    rows = rows_to_list(conn.execute(query, tuple(params)).fetchall())
+    conn.close()
+    return jsonify(rows)
+
+
+# ----------------------
+# RISK FLAGS
+# ----------------------
 @app.get("/api/admin/risk-flags")
 @admin_api_required
 def admin_risk_flags():
+    status = (request.args.get("status") or "").strip()
     conn = get_db()
-    rows = conn.execute("""
-        SELECT *
-        FROM risk_flags
-        ORDER BY created_at DESC
-    """).fetchall()
+    query = "SELECT * FROM risk_flags WHERE 1=1"
+    params: list[Any] = []
+    if status:
+        query += " AND status=?"
+        params.append(status)
+    query += " ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, created_at DESC"
+    rows = rows_to_list(conn.execute(query, tuple(params)).fetchall())
     conn.close()
-
-    return jsonify([serialize_risk_flag(r) for r in rows])
+    return jsonify(rows)
 
 
 @app.post("/api/admin/risk-flags/<int:flag_id>/resolve")
@@ -3071,83 +2765,323 @@ def admin_resolve_risk_flag(flag_id):
     row = conn.execute("SELECT * FROM risk_flags WHERE id=?", (flag_id,)).fetchone()
     if not row:
         conn.close()
-        return jsonify({"error": "Risk flag not found"}), 404
-
-    conn.execute("""
-        UPDATE risk_flags
-        SET status='resolved', resolved_by=?, resolved_at=?
-        WHERE id=?
-    """, (get_admin_actor_id(), now(), flag_id))
+        return jsonify({"error": "Flag not found"}), 404
+    actor = get_admin_actor_id()
+    conn.execute(
+        "UPDATE risk_flags SET status='resolved', resolved_by=?, resolved_at=? WHERE id=?",
+        (actor, now(), flag_id),
+    )
     conn.commit()
     conn.close()
 
     log_audit_event(
         action_group="risk",
-        action_type="resolve",
-        target_type="risk_flag",
-        target_id=str(flag_id),
-        summary=f"Resolved risk flag {flag_id}",
+        action_type="resolve_flag",
+        target_type=row["target_type"],
+        target_id=row["target_id"],
+        summary=f"Resolved risk flag #{flag_id}: {row['title']}",
+        actor_id=actor,
+    )
+    return jsonify({"status": "resolved"})
+
+
+# ----------------------
+# TASK CATALOG (advanced)
+# ----------------------
+@app.post("/api/admin/tasks")
+@admin_api_required
+def admin_create_task():
+    data = request.json or {}
+    title = (data.get("title") or "").strip()
+    category_key = (data.get("category_key") or "").strip()
+    description = (data.get("description") or "").strip() or title
+    try:
+        reward = round(float(data.get("reward", 0)), 2)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Reward must be a number."}), 400
+    if not title or not category_key:
+        return jsonify({"error": "Title and category are required."}), 400
+    if reward < 0:
+        return jsonify({"error": "Reward cannot be negative."}), 400
+
+    task_key = "bonus_" + "".join(
+        ch if ch.isalnum() else "_" for ch in title.strip().lower()
+    ).strip("_") + "_" + secrets.token_hex(3)
+
+    payload = {
+        "display_name": title,
+        "source_type": "bonus",
+        "category_key": category_key,
+        "content": data.get("content") or {},
+    }
+
+    conn = get_db()
+    max_sort = conn.execute(
+        "SELECT COALESCE(MAX(sort_order), 0) AS m FROM bonus_task_catalog"
+    ).fetchone()["m"]
+    conn.execute(
+        """
+        INSERT INTO bonus_task_catalog (
+            task_key, title, category_key, description, task_payload_json,
+            reward, sort_order, is_active, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+        """,
+        (task_key, title, category_key, description, json.dumps(payload), reward, int(max_sort) + 1, now()),
+    )
+    conn.commit()
+    new_id = conn.execute("SELECT id FROM bonus_task_catalog WHERE task_key=?", (task_key,)).fetchone()["id"]
+    conn.close()
+
+    log_audit_event(
+        action_group="tasks",
+        action_type="create_task",
+        target_type="bonus_task",
+        target_id=str(new_id),
+        summary=f"Created task '{title}' ({category_key})",
         actor_id=get_admin_actor_id(),
     )
 
+    return jsonify({"status": "created", "id": new_id})
+
+
+@app.post("/api/admin/tasks/<int:task_id>/toggle-active")
+@admin_api_required
+def admin_toggle_task_active(task_id):
+    data = request.json or {}
+    is_active = bool(data.get("is_active"))
+
+    conn = get_db()
+    existing = conn.execute("SELECT title FROM bonus_task_catalog WHERE id=?", (task_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({"error": "Task not found."}), 404
+    conn.execute("UPDATE bonus_task_catalog SET is_active=? WHERE id=?", (1 if is_active else 0, task_id))
+    conn.commit()
+    conn.close()
+
+    log_audit_event(
+        action_group="tasks",
+        action_type="toggle_active",
+        target_type="bonus_task",
+        target_id=str(task_id),
+        summary=f"{'Activated' if is_active else 'Deactivated'} task '{existing['title']}'",
+        actor_id=get_admin_actor_id(),
+    )
     return jsonify({"status": "updated"})
 
 
-@app.get("/api/admin/audit-logs")
+@app.post("/api/admin/tasks/<int:task_id>/edit")
 @admin_api_required
-def admin_audit_logs():
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT *
-        FROM audit_logs
-        ORDER BY created_at DESC
-        LIMIT 500
-    """).fetchall()
-    conn.close()
-
-    return jsonify([serialize_audit_log(r) for r in rows])
-
-
-@app.get("/api/admin/notes/<user_id>")
-@admin_api_required
-def admin_notes_list(user_id):
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT *
-        FROM admin_notes
-        WHERE user_id=?
-        ORDER BY created_at DESC
-    """, (user_id,)).fetchall()
-    conn.close()
-
-    return jsonify([dict(r) for r in rows])
-
-
-@app.post("/api/admin/notes/<user_id>")
-@admin_api_required
-def admin_notes_create(user_id):
+def admin_edit_task(task_id):
     data = request.json or {}
-    note = (data.get("note") or "").strip()
+    conn = get_db()
+    existing = conn.execute("SELECT * FROM bonus_task_catalog WHERE id=?", (task_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({"error": "Task not found."}), 404
 
-    if not note:
-        return jsonify({"error": "Note is required"}), 400
+    title = (data.get("title") or existing["title"]).strip()
+    category_key = (data.get("category_key") or existing["category_key"]).strip()
+    description = (data.get("description") or existing["description"]).strip()
+    sort_order = data.get("sort_order", existing["sort_order"])
+    try:
+        sort_order = int(sort_order)
+    except (TypeError, ValueError):
+        sort_order = existing["sort_order"]
 
-    note_id = add_admin_note(
-        user_id=user_id,
-        note=note,
-        created_by=get_admin_actor_id(),
+    conn.execute(
+        "UPDATE bonus_task_catalog SET title=?, category_key=?, description=?, sort_order=? WHERE id=?",
+        (title, category_key, description, sort_order, task_id),
     )
+    conn.commit()
+    conn.close()
 
     log_audit_event(
-        action_group="user",
-        action_type="add_note",
-        target_type="user",
-        target_id=user_id,
-        summary=f"Added admin note for {user_id}",
+        action_group="tasks",
+        action_type="edit_task",
+        target_type="bonus_task",
+        target_id=str(task_id),
+        summary=f"Edited task '{title}'",
+        actor_id=get_admin_actor_id(),
+    )
+    return jsonify({"status": "updated"})
+
+
+@app.get("/api/admin/task-categories")
+@admin_api_required
+def admin_task_categories():
+    conn = get_db()
+    rows = []
+    if table_exists(conn, "task_category_catalog"):
+        rows = rows_to_list(conn.execute(
+            "SELECT * FROM task_category_catalog ORDER BY display_name ASC"
+        ).fetchall())
+    conn.close()
+    return jsonify(rows)
+
+
+# ----------------------
+# LEVEL CATALOG (advanced)
+# ----------------------
+@app.get("/api/admin/levels")
+@admin_api_required
+def admin_levels():
+    conn = get_db()
+    rows = rows_to_list(conn.execute(
+        "SELECT * FROM level_catalog ORDER BY level_number ASC"
+    ).fetchall())
+    conn.close()
+    return jsonify(rows)
+
+
+@app.post("/api/admin/levels/<int:level_id>")
+@admin_api_required
+def admin_edit_level(level_id):
+    data = request.json or {}
+    fields = ["unlock_fee", "final_stage_fee", "completion_reward", "base_task_count", "total_task_count", "final_stage_enabled", "is_active"]
+    updates = {}
+    for f in fields:
+        if f in data:
+            try:
+                updates[f] = float(data[f]) if f in ("unlock_fee", "final_stage_fee", "completion_reward") else int(data[f])
+            except (TypeError, ValueError):
+                return jsonify({"error": f"Invalid value for {f}."}), 400
+    if not updates:
+        return jsonify({"error": "No valid fields supplied."}), 400
+
+    conn = get_db()
+    existing = conn.execute("SELECT * FROM level_catalog WHERE id=?", (level_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({"error": "Level not found."}), 404
+
+    set_clause = ", ".join(f"{k}=?" for k in updates)
+    conn.execute(f"UPDATE level_catalog SET {set_clause} WHERE id=?", (*updates.values(), level_id))
+    conn.commit()
+    row = conn.execute("SELECT * FROM level_catalog WHERE id=?", (level_id,)).fetchone()
+    conn.close()
+
+    log_audit_event(
+        action_group="levels",
+        action_type="edit_level",
+        target_type="level",
+        target_id=str(level_id),
+        summary=f"Edited level {existing['level_number']} economics: {updates}",
+        actor_id=get_admin_actor_id(),
+        metadata_json=json.dumps(updates),
+    )
+    return jsonify({"status": "updated", "level": dict(row)})
+
+
+# ----------------------
+# BROADCAST MESSAGING
+# ----------------------
+@app.post("/api/admin/broadcast")
+@admin_api_required
+def admin_broadcast():
+    data = request.json or {}
+    title = (data.get("title") or "").strip()
+    body = (data.get("body") or "").strip()
+    target = (data.get("target") or "all").strip()  # 'all' | 'active' | 'blocked' | single user_id via 'user_id'
+    single_user_id = (data.get("user_id") or "").strip()
+
+    if not title or not body:
+        return jsonify({"error": "Title and message body are required."}), 400
+
+    conn = get_db()
+    if single_user_id:
+        user_ids = [single_user_id] if get_user(conn, single_user_id) else []
+    elif target == "blocked":
+        user_ids = [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM users WHERE account_status='blocked'"
+        ).fetchall()]
+    elif target == "active":
+        user_ids = [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM users WHERE account_status!='blocked'"
+        ).fetchall()]
+    else:
+        user_ids = [r["user_id"] for r in conn.execute("SELECT user_id FROM users").fetchall()]
+
+    sent = 0
+    for uid in user_ids:
+        try:
+            create_message(conn, user_id=uid, title=title, body=body, category="announcement")
+            sent += 1
+        except Exception:
+            continue
+    conn.close()
+
+    log_audit_event(
+        action_group="broadcast",
+        action_type="send_broadcast",
+        target_type="broadcast",
+        target_id=single_user_id or target,
+        summary=f"Broadcast '{title}' sent to {sent} user(s) (target={single_user_id or target})",
         actor_id=get_admin_actor_id(),
     )
 
-    return jsonify({"status": "created", "note_id": note_id})
+    return jsonify({"status": "sent", "recipients": sent})
+
+
+# ----------------------
+# ANALYTICS
+# ----------------------
+@app.get("/api/admin/analytics")
+@admin_api_required
+def admin_analytics():
+    conn = get_db()
+
+    signups = rows_to_list(conn.execute(
+        """
+        SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n
+        FROM users
+        WHERE created_at IS NOT NULL
+        GROUP BY day
+        ORDER BY day DESC
+        LIMIT 14
+        """
+    ).fetchall())
+
+    revenue = []
+    if table_exists(conn, "manual_payments"):
+        revenue = rows_to_list(conn.execute(
+            """
+            SELECT substr(COALESCE(approved_at, created_at), 1, 10) AS day, COALESCE(SUM(amount), 0) AS total
+            FROM manual_payments
+            WHERE status='approved'
+            GROUP BY day
+            ORDER BY day DESC
+            LIMIT 14
+            """
+        ).fetchall())
+
+    task_completion = rows_to_list(conn.execute(
+        """
+        SELECT category_id, status, COUNT(*) AS n
+        FROM user_level_tasks
+        GROUP BY category_id, status
+        """
+    ).fetchall()) if table_exists(conn, "user_level_tasks") else []
+
+    top_categories = rows_to_list(conn.execute(
+        """
+        SELECT tc.display_name, COUNT(*) AS n
+        FROM user_level_tasks ult
+        JOIN task_category_catalog tc ON tc.id = ult.category_id
+        WHERE ult.status = 'completed'
+        GROUP BY tc.display_name
+        ORDER BY n DESC
+        LIMIT 10
+        """
+    ).fetchall()) if table_exists(conn, "user_level_tasks") and table_exists(conn, "task_category_catalog") else []
+
+    conn.close()
+    return jsonify({
+        "signups_by_day": list(reversed(signups)),
+        "revenue_by_day": list(reversed(revenue)),
+        "task_completion_raw": task_completion,
+        "top_categories": top_categories,
+    })
 
 
 # ======================

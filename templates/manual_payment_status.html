@@ -450,9 +450,80 @@
           height: 54px;
         }
       }
+
+      .confirmOverlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(4, 6, 8, 0.6);
+        backdrop-filter: blur(4px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        z-index: 200;
+      }
+
+      .confirmOverlay.isOpen {
+        display: flex;
+      }
+
+      .confirmCard {
+        width: min(100%, 380px);
+        background: var(--panel-strong);
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        padding: 22px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+      }
+
+      .confirmCard h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        font-weight: 800;
+      }
+
+      .confirmCard p {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .confirmActions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+
+      .confirmActions button {
+        border-radius: 6px;
+        padding: 10px 16px;
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+      }
+
+      .confirmActions button.confirmDanger {
+        border-color: transparent;
+        background: var(--danger);
+        color: #1a0505;
+      }
     </style>
   </head>
   <body>
+    <div class="confirmOverlay" id="confirmOverlay">
+      <div class="confirmCard">
+        <h3 id="confirmTitle">Confirm</h3>
+        <p id="confirmMessage"></p>
+        <div class="confirmActions">
+          <button type="button" id="confirmCancelBtn">Cancel</button>
+          <button type="button" id="confirmOkBtn" class="confirmDanger">Confirm</button>
+        </div>
+      </div>
+    </div>
     <main class="statusShell">
       <section class="statusPanel">
         <div class="statusTopLine">
@@ -803,13 +874,44 @@
         loadPayment({ silent: false });
       });
 
+      function showConfirm(title, message) {
+        return new Promise((resolve) => {
+          const overlay = document.getElementById("confirmOverlay");
+          document.getElementById("confirmTitle").textContent = title;
+          document.getElementById("confirmMessage").textContent = message;
+          overlay.classList.add("isOpen");
+
+          const cleanup = (result) => {
+            overlay.classList.remove("isOpen");
+            cancelBtn.removeEventListener("click", onCancel);
+            okBtn.removeEventListener("click", onOk);
+            overlay.removeEventListener("click", onOverlay);
+            resolve(result);
+          };
+          const cancelBtn = document.getElementById("confirmCancelBtn");
+          const okBtn = document.getElementById("confirmOkBtn");
+          const onCancel = () => cleanup(false);
+          const onOk = () => cleanup(true);
+          const onOverlay = (e) => {
+            if (e.target === overlay) cleanup(false);
+          };
+          cancelBtn.addEventListener("click", onCancel);
+          okBtn.addEventListener("click", onOk);
+          overlay.addEventListener("click", onOverlay);
+        });
+      }
+
       document.getElementById("cancelPaymentBtn").addEventListener("click", async () => {
         if (!currentPayment?.reference || !currentPayment.can_cancel) {
           setMessage(currentPayment, "This payment can no longer be cancelled.");
           return;
         }
 
-        if (!window.confirm("Cancel this pending manual payment?")) return;
+        const confirmed = await showConfirm(
+          "Cancel this payment?",
+          "This pending manual payment will be cancelled and cannot be resumed."
+        );
+        if (!confirmed) return;
 
         const btn = document.getElementById("cancelPaymentBtn");
         btn.disabled = true;

@@ -1,596 +1,396 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Admin Console</title>
-    <link rel="icon" href="{{url_for('static', filename='images/favicon-180x180-1.png')}}">
-    <link rel="stylesheet" href="/static/css/admin.css" />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
-    />
-  </head>
-  <body>
-    <div class="adminApp">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Admin · EarnMaster</title>
+<link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
 
-      
-<div id="adminLoginView" class="adminLoginShell adminLoginExperience">
-  <div class="adminLoginAmbient" aria-hidden="true">
-    <span class="adminLoginGlow adminLoginGlowOne"></span>
-    <span class="adminLoginGlow adminLoginGlowTwo"></span>
-    <span class="adminLoginGridWash"></span>
-  </div>
+<!-- ===================== LOGIN ===================== -->
+<section id="loginScreen" class="login-screen">
+  <form id="loginForm" class="login-card" autocomplete="off">
+    <div class="login-mark">EM</div>
+    <h1>Admin console</h1>
+    <p class="login-sub">Sign in to manage users, withdrawals and payments.</p>
 
-  <main class="adminLoginStage" aria-labelledby="adminLoginTitle">
-    <section class="adminPanelCard adminLoginCard" aria-labelledby="adminLoginTitle" aria-describedby="adminLoginHint">
-      <div class="adminLoginHeader">
-        <div class="adminBrandMark adminLoginBrandMark" aria-hidden="true">
-          <i class="fas fa-building-shield"></i>
+    <label class="field">
+      <span>Username</span>
+      <input type="text" id="loginUsername" name="username" required autocomplete="username">
+    </label>
+
+    <label class="field">
+      <span>Password</span>
+      <input type="password" id="loginPassword" name="password" required autocomplete="current-password">
+    </label>
+
+    <button type="submit" class="btn btn-primary btn-block" id="loginSubmit">Sign in</button>
+    <p class="login-error" id="loginError" hidden></p>
+  </form>
+</section>
+
+<!-- ===================== DASHBOARD ===================== -->
+<section id="dashboard" class="dashboard" hidden>
+
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-mark">EM</span>
+      <span class="brand-name">Admin console</span>
+    </div>
+    <div class="topbar-actions">
+      <input type="search" id="globalSearch" class="search-input" placeholder="Jump to user (id, phone, email)…">
+      <button class="btn btn-ghost btn-sm" id="themeToggle" title="Toggle theme">☀️</button>
+      <span class="topbar-user" id="adminUsername"></span>
+      <button class="btn btn-ghost" id="logoutBtn">Log out</button>
+    </div>
+  </header>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="users">Users</button>
+    <button class="tab-btn" data-tab="withdrawals">Withdrawals</button>
+    <button class="tab-btn" data-tab="payments">Payments</button>
+    <button class="tab-btn" data-tab="tasks">Tasks</button>
+    <button class="tab-btn" data-tab="levels">Levels</button>
+    <button class="tab-btn" data-tab="broadcast">Broadcast</button>
+    <button class="tab-btn" data-tab="risk">Risk flags <span class="tab-dot" id="riskDot" hidden></span></button>
+    <button class="tab-btn" data-tab="audit">Audit log</button>
+  </nav>
+
+  <main class="content">
+
+    <!-- OVERVIEW -->
+    <div class="tab-panel active" id="panel-overview">
+      <div class="stat-grid" id="statGrid">
+        <div class="stat-card">
+          <span class="stat-label">Total users</span>
+          <span class="stat-value" id="statTotalUsers">–</span>
         </div>
-        <div>
-          <div class="adminLoginKicker">EarnMaster</div>
-          <h1 id="adminLoginTitle" class="adminLoginTitle">Admin Portal</h1>
+        <div class="stat-card">
+          <span class="stat-label">Blocked users</span>
+          <span class="stat-value" id="statBlockedUsers">–</span>
+        </div>
+        <div class="stat-card accent-warn">
+          <span class="stat-label">Pending withdrawals</span>
+          <span class="stat-value" id="statPendingWithdrawals">–</span>
+        </div>
+        <div class="stat-card accent-warn">
+          <span class="stat-label">Pending payments</span>
+          <span class="stat-value" id="statPendingPayments">–</span>
+        </div>
+        <div class="stat-card accent-good">
+          <span class="stat-label">Balance held (GHS)</span>
+          <span class="stat-value" id="statTotalBalance">–</span>
         </div>
       </div>
 
-      <p id="adminLoginHint" class="adminLoginLead">
-        Secure access for operations, approvals, and account control.
-      </p>
-
-      <form id="adminLoginForm" class="adminLoginForm" autocomplete="on" novalidate>
-        <div class="adminAuthGrid">
-          <label class="adminField" for="adminUsername">
-            <span class="adminFieldLabel">Username or email</span>
-            <input id="adminUsername" class="adminInput" type="text" placeholder="admin@earnmaster" autocomplete="username" />
-          </label>
-
-          <label class="adminField adminPasswordField" for="adminPassword">
-            <span class="adminFieldLabel">Password</span>
-            <div class="adminPasswordWrap">
-              <input id="adminPassword" class="adminInput" type="password" placeholder="Enter password" autocomplete="current-password" />
-              <button id="adminPasswordToggle" class="adminPasswordToggle" type="button" aria-label="Show password">
-                <i class="fas fa-eye"></i>
-              </button>
-            </div>
-          </label>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <div class="chart-card-head">
+            <h3>Signups — last 14 days</h3>
+          </div>
+          <svg id="signupsChart" class="mini-chart" viewBox="0 0 560 160" preserveAspectRatio="none"></svg>
         </div>
-
-        <div class="adminLoginOptionsRow">
-          <label class="adminRememberToggle" for="adminRememberMe">
-            <input id="adminRememberMe" type="checkbox" />
-            <span>Remember username</span>
-          </label>
-          <span class="adminLoginSecurityNote">
-            <i class="fas fa-lock"></i>
-            Protected session
-          </span>
+        <div class="chart-card">
+          <div class="chart-card-head">
+            <h3>Approved revenue (GHS) — last 14 days</h3>
+          </div>
+          <svg id="revenueChart" class="mini-chart" viewBox="0 0 560 160" preserveAspectRatio="none"></svg>
         </div>
+      </div>
 
-        <div class="adminAuthActions">
-          <button id="adminLoginBtn" class="adminPrimaryBtn adminLoginSubmit" type="submit">
-            <span>Access dashboard</span>
-            <i class="fas fa-arrow-right"></i>
-          </button>
+      <div class="chart-card" style="margin-top:14px;">
+        <div class="chart-card-head">
+          <h3>Most-completed task categories</h3>
         </div>
-      </form>
+        <div id="topCategoriesList" class="bar-list"></div>
+      </div>
 
-      <div id="adminLoginError" class="adminErrorText" role="alert" aria-live="polite"></div>
-    </section>
-  </main>
-</div>
+      <p class="hint">Use the tabs above to review users, approve or reject withdrawal requests, edit task and level economics, broadcast messages, and audit every admin action.</p>
+    </div>
 
-<div id="adminShellView" class="adminShellRoot" hidden>
-        <aside class="adminSidebar" id="adminSidebar" aria-label="Admin navigation">
-          <div class="adminSidebarTop">
-            <div class="adminSidebarBrand">
-              <div class="adminBrandMark adminSidebarMark">
-                <i class="fas fa-shield-halved"></i>
-              </div>
-              <div class="adminSidebarBrandCopy">
-                <div class="adminBrandEyebrow">Operations Console</div>
-                <div class="adminBrandTitle">Admin Dashboard</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="adminSidebarSection">
-            <div class="adminSidebarLabel">Workspace</div>
-            <div class="adminSidebarNav">
-              <button class="adminSidebarLink active" type="button" data-tab="overview">
-                <i class="fas fa-chart-line"></i><span>Overview</span><span class="adminNavBadge adminNavBadgeLive" id="sidebarBadgeOverview">Live</span>
-              </button>
-              <button class="adminSidebarLink" type="button" data-tab="payments">
-                <i class="fas fa-credit-card"></i><span>Payments</span><span class="adminNavBadge" id="sidebarBadgePayments">0</span>
-              </button>
-              <button class="adminSidebarLink" type="button" data-tab="withdrawals">
-                <i class="fas fa-money-bill-wave"></i><span>Withdrawals</span><span class="adminNavBadge" id="sidebarBadgeWithdrawals">0</span>
-              </button>
-              <button class="adminSidebarLink" type="button" data-tab="users">
-                <i class="fas fa-users"></i><span>Users</span><span class="adminNavBadge" id="sidebarBadgeUsers">0</span>
-              </button>
-              <button class="adminSidebarLink" type="button" data-tab="risk">
-                <i class="fas fa-triangle-exclamation"></i><span>Risk / Flags</span><span class="adminNavBadge" id="sidebarBadgeRisk">0</span>
-              </button>
-              <button class="adminSidebarLink" type="button" data-tab="logs">
-                <i class="fas fa-clock-rotate-left"></i><span>Audit Logs</span><span class="adminNavBadge" id="sidebarBadgeLogs">0</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="adminSidebarFooter">
-            <div class="adminSidebarStat">
-              <span class="statusDot live"></span>
-              <div>
-                <div class="adminSidebarStatLabel">Live connection</div>
-                <div id="adminStatusTextSidebar" class="adminSidebarStatValue">Connected</div>
-              </div>
-            </div>
-            <div class="adminSidebarHint">Premium control surface, not a box of unsorted alerts.</div>
-          </div>
-        </aside>
-
-        <button id="adminBackdrop" class="adminBackdrop" type="button" aria-label="Close sidebar" hidden></button>
-
-        <div class="adminTopbar">
-          <div class="adminTopbarLeft">
-            <div class="adminBrandMark">
-              <i class="fas fa-shield-halved"></i>
-            </div>
-            <div>
-              <div class="adminBrandEyebrow">Operations Console</div>
-              <div class="adminBrandTitle">Admin Dashboard</div>
-            </div>
-          </div>
-
-          <div class="adminTopbarSearch" role="search">
-            <i class="fas fa-search"></i>
-            <input id="adminShellSearch" type="search" placeholder="Search current workspace" autocomplete="off" />
-          </div>
-
-          <div class="adminTopbarRight">
-            <div class="adminTopbarStatus">
-              <span class="statusDot live"></span>
-              <span id="adminStatusText">Live connection</span>
-            </div>
-
-            <button id="adminNotificationBtn" class="adminGhostBtn adminIconBtn" type="button" aria-label="Open notifications">
-              <i class="fas fa-bell"></i>
-              <span id="adminNotificationCount" class="adminBadgeCount">0</span>
-            </button>
-
-            <button id="overviewRefreshBtn" class="adminGhostBtn" type="button">
-              <i class="fas fa-rotate-right"></i>
-              <span>Refresh</span>
-            </button>
-
-            <div class="adminTopbarProfileWrap">
-              <button
-                id="adminProfileBtn"
-                class="adminProfileBtn"
-                type="button"
-                
-              >
-                <span class="adminProfileAvatar"><i class="fas fa-user-shield"></i></span>
-                <span class="adminProfileCopy">
-                  <span class="adminProfileLabel">Signed in</span>
-                  <span class="adminProfileName">Admin</span>
-                </span>
-              </button>
-            </div>
-
-            <button id="adminLogoutBtn" class="adminPrimaryBtn" type="button">
-              <i class="fas fa-arrow-right-from-bracket"></i>
-              <span>Logout</span>
-            </button>
-          </div>
+    <!-- USERS -->
+    <div class="tab-panel" id="panel-users">
+      <div class="panel-head">
+        <h2>Users</h2>
+        <div class="panel-head-actions">
+          <input type="search" id="userSearch" class="search-input" placeholder="Search name, phone or email…">
+          <button class="btn btn-ghost btn-sm" id="exportUsersCsv">Export CSV</button>
         </div>
-
-        <div id="adminNotificationPanel" class="adminNotificationPanel" hidden>
-          <div class="adminNotificationPanelHead">
-            <div>
-              <div class="adminSectionEyebrow">Notifications</div>
-              <div class="adminNotificationTitle">Recent notifications</div>
-            </div>
-            <button id="adminNotificationCloseBtn" class="adminGhostBtn adminIconBtn" type="button" aria-label="Close notifications">
-              <i class="fas fa-xmark"></i>
-            </button>
-          </div>
-          <div id="adminNotificationList" class="adminNotificationList"></div>
-        </div>
-
-        <section class="adminPageHeader">
-          <div class="adminBreadcrumbs" id="adminBreadcrumbs">Operations Console / Overview</div>
-          <div class="adminPageHeaderRow">
-            <div class="adminPageHeaderCopy">
-              <div class="adminSectionEyebrow" id="adminPageEyebrow">Overview</div>
-              <h1 class="adminPageTitle" id="adminPageTitle">Admin Dashboard</h1>
-              <div class="adminPageSubtitle" id="adminPageSubtitle">Monitor approvals, risk, and system posture from one calm surface.</div>
-            </div>
-          </div>
-        </section>
-
-        <div class="adminShell">
-
-          <div class="adminWorkspace">
-            <div class="adminMainPanel">
-              <div class="adminPanelView active" data-panel="overview">
-                <div class="adminPanelCard">
-                  <div class="adminSummaryStrip adminOverviewSummary" id="overviewSummaryStrip">
-                    <div class="adminMetricCard">
-                      <div class="adminMetricLabel">Pending Unlock Payments</div>
-                      <div class="adminMetricValue" id="metricPendingUnlocks">0</div>
-                      <div class="adminMetricSub">Payments waiting for review</div>
-                    </div>
-
-                    <div class="adminMetricCard danger">
-                      <div class="adminMetricLabel">Pending Withdrawals</div>
-                      <div class="adminMetricValue" id="metricPendingWithdrawals">0</div>
-                      <div class="adminMetricSub">Manual payout requests in queue</div>
-                    </div>
-
-                    <div class="adminMetricCard">
-                      <div class="adminMetricLabel">Flagged Users</div>
-                      <div class="adminMetricValue" id="metricFlaggedUsers">0</div>
-                      <div class="adminMetricSub">Accounts under watch or review</div>
-                    </div>
-
-                    <div class="adminMetricCard danger">
-                      <div class="adminMetricLabel">Blocked Users</div>
-                      <div class="adminMetricValue" id="metricBlockedUsers">0</div>
-                      <div class="adminMetricSub">Accounts unable to access platform</div>
-                    </div>
-
-                    <div class="adminMetricCard success">
-                      <div class="adminMetricLabel">Active Today</div>
-                      <div class="adminMetricValue" id="metricActiveToday">0</div>
-                      <div class="adminMetricSub">Users seen recently</div>
-                    </div>
-
-                    <div class="adminMetricCard success">
-                      <div class="adminMetricLabel">Successful Payments</div>
-                      <div class="adminMetricValue" id="metricSuccessfulPayments">0</div>
-                      <div class="adminMetricSub">Verified payments applied successfully</div>
-                    </div>
-                  </div>
-
-                  <div class="adminSectionHead">
-                    <div>
-                      <div class="adminSectionEyebrow">Overview</div>
-                      <h2 class="adminSectionTitle">Admin Operations Overview</h2>
-                      <div class="adminSectionSub">
-                        Watch approvals, risks, and user enforcement from one place.
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="adminOverviewHero">
-                    <div>
-                      <div class="adminOverviewHeroEyebrow">System posture</div>
-                      <div class="adminOverviewHeroTitle">Keep approvals tight and abuse expensive.</div>
-                      <div class="adminOverviewHeroText">
-                        This panel shows live queue pressure, risk load, and account controls using your real backend data.
-                      </div>
-                    </div>
-
-                    <div class="adminOverviewHeroStats" id="overviewHeroStats"></div>
-                  </div>
-
-                  <div class="adminOverviewGrid adminGridTwo">
-                    <div class="adminInnerCard">
-                      <div class="adminBlockHead">
-                        <div>
-                          <div class="adminInnerTitle">Urgent queue items</div>
-                          <div class="adminInnerSub">Fast access to live admin pressure points.</div>
-                        </div>
-                      </div>
-                      <div class="adminUrgentStack" id="overviewUrgentCards"></div>
-                    </div>
-
-                    <div class="adminInnerCard">
-                      <div class="adminBlockHead">
-                        <div>
-                          <div class="adminInnerTitle">Policy state</div>
-                          <div class="adminInnerSub">Current operating rules reflected by backend controls.</div>
-                        </div>
-                      </div>
-                      <div class="adminPolicyList" id="overviewPolicyList"></div>
-                    </div>
-                  </div>
-
-                  <div class="adminOverviewLower">
-                    <div class="adminInnerCard">
-                      <div class="adminBlockHead">
-                        <div>
-                          <div class="adminInnerTitle">Recent system activity</div>
-                          <div class="adminInnerSub">Latest audit and queue events.</div>
-                        </div>
-                      </div>
-                      <div class="adminActivityFeed" id="overviewActivityFeed"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="adminPanelView" data-panel="payments">
-                <div class="adminPanelCard">
-                  <div class="adminSectionHead">
-                    <div>
-                      <div class="adminSectionEyebrow">Payments</div>
-                      <h2 class="adminSectionTitle">Payment Review</h2>
-                      <div class="adminSectionSub">Review Paystack and manual unlock payments, then resolve pending or mismatched transactions.</div>
-                    </div>
-
-                    <div class="adminSectionActions">
-                      <button class="adminPrimaryBtn" type="button" id="paymentsRefreshBtn">
-                        <i class="fas fa-rotate-right"></i>
-                        <span>Refresh</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="adminPaymentsSummary" id="paymentsSummaryStrip"></div>
-
-                  <div class="adminQueueToolbar">
-                    <div class="adminSearchWrap">
-                      <i class="fas fa-search"></i>
-                      <input id="paymentsSearchInput" class="adminSearchInput" type="text" placeholder="Search by user, phone, reference, or amount" />
-                    </div>
-
-                    <div class="adminToolbarBlock">
-                      <div class="adminToolbarLabel">Status</div>
-                      <div class="adminFilterChips" id="paymentsStatusFilters"></div>
-                    </div>
-
-                    <div class="adminToolbarBlock">
-                      <div class="adminToolbarLabel">Type</div>
-                      <div class="adminFilterChips" id="paymentsTypeFilters"></div>
-                    </div>
-
-                    <div class="adminToolbarBlock adminDateRangeBlock">
-                      <div class="adminToolbarLabel">Date Range</div>
-                      <div class="adminFilterChips adminDatePresetChips" id="paymentsDatePresetFilters"></div>
-                      <div class="adminDateRangeControls adminCustomDateControls" id="paymentsCustomDateRange" hidden>
-                        <label class="adminDateField">
-                          <span>From</span>
-                          <input id="paymentsDateStart" class="adminDateInput" type="date" />
-                        </label>
-                        <label class="adminDateField">
-                          <span>To</span>
-                          <input id="paymentsDateEnd" class="adminDateInput" type="date" />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="adminTableShell">
-                    <div class="adminTableHead adminPaymentsTableHead">
-                      <div>Name</div>
-                      <div>User</div>
-                      <div>Type</div>
-                      <div>Level</div>
-                      <div>Expected</div>
-                      <div>Paid</div>
-                      <div>Reference</div>
-                      <div>Status</div>
-                      <div>Actions</div>
-                    </div>
-                    <div id="paymentsRows" class="adminTableBody"></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="adminPanelView" data-panel="withdrawals">
-                <div class="adminPanelCard">
-                  <div class="adminSectionHead">
-                    <div>
-                      <div class="adminSectionEyebrow">Withdrawals</div>
-                      <h2 class="adminSectionTitle">Payout Queue</h2>
-                      <div class="adminSectionSub">Approve, reject, or hold withdrawal requests with live balance context.</div>
-                    </div>
-
-                    <div class="adminSectionActions">
-                      <button class="adminPrimaryBtn" type="button" id="withdrawalsRefreshBtn">
-                        <i class="fas fa-rotate-right"></i>
-                        <span>Refresh</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="adminWithdrawalsSummary" id="withdrawalsSummaryStrip"></div>
-
-                  <div class="adminQueueToolbar">
-                    <div class="adminSearchWrap">
-                      <i class="fas fa-search"></i>
-                      <input id="withdrawalsSearchInput" class="adminSearchInput" type="text" placeholder="Search by user, reference, number, or network" />
-                    </div>
-
-                    <div class="adminToolbarBlock">
-                      <div class="adminToolbarLabel">Status</div>
-                      <div class="adminFilterChips" id="withdrawalsStatusFilters"></div>
-                    </div>
-
-                    <div class="adminToolbarBlock adminDateRangeBlock">
-                      <div class="adminToolbarLabel">Date Range</div>
-                      <div class="adminFilterChips adminDatePresetChips" id="withdrawalsDatePresetFilters"></div>
-                      <div class="adminDateRangeControls adminCustomDateControls" id="withdrawalsCustomDateRange" hidden>
-                        <label class="adminDateField">
-                          <span>From</span>
-                          <input id="withdrawalsDateStart" class="adminDateInput" type="date" />
-                        </label>
-                        <label class="adminDateField">
-                          <span>To</span>
-                          <input id="withdrawalsDateEnd" class="adminDateInput" type="date" />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="adminTableShell">
-                    <div class="adminTableHead adminWithdrawalsTableHead">
-                      <div>Name</div><div>User</div><div>Amount</div><div>Balance @ Request</div><div>Active Level</div><div>Method</div><div>Requested</div><div>Status</div><div>Actions</div>
-                    </div>
-                    <div id="withdrawalsRows" class="adminTableBody"></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="adminPanelView" data-panel="users">
-                <div class="adminPanelCard">
-                  <div class="adminSectionHead">
-                    <div>
-                      <div class="adminSectionEyebrow">Users</div>
-                      <h2 class="adminSectionTitle">Account Controls</h2>
-                      <div class="adminSectionSub">Inspect accounts, control access, and force logout abusive users.</div>
-                    </div>
-
-                    <div class="adminSectionActions">
-                      <button class="adminPrimaryBtn" type="button" id="usersRefreshBtn">
-                        <i class="fas fa-rotate-right"></i>
-                        <span>Refresh</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="adminUsersSummary" id="usersSummaryStrip"></div>
-
-                  <div class="adminQueueToolbar">
-                    <div class="adminSearchWrap">
-                      <i class="fas fa-search"></i>
-                      <input id="usersSearchInput" class="adminSearchInput" type="text" placeholder="Search by user, phone, email, or status" />
-                    </div>
-
-                    <div class="adminToolbarBlock">
-                      <div class="adminToolbarLabel">Status</div>
-                      <div class="adminFilterChips" id="usersStatusFilters"></div>
-                    </div>
-                  </div>
-
-                  <div class="adminTableShell">
-                    <div class="adminTableHead adminUsersTableHead">
-                      <div>Name</div>
-                      <div>User</div>
-                      <div>Status</div>
-                      <div>Balance</div>
-                      <div>Active Level</div>
-                      <div>Access</div>
-                      <div>Last Seen</div>
-                      <div>Actions</div>
-                    </div>
-                    <div id="usersRows" class="adminTableBody"></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="adminPanelView" data-panel="risk">
-                <div class="adminPanelCard">
-                  <div class="adminSectionHead">
-                    <div>
-                      <div class="adminSectionEyebrow">Risk / Flags</div>
-                      <h2 class="adminSectionTitle">Risk Review</h2>
-                      <div class="adminSectionSub">Investigate open risk flags and resolve them when reviewed.</div>
-                    </div>
-
-                    <div class="adminSectionActions">
-                      <button class="adminPrimaryBtn" type="button" id="riskRefreshBtn">
-                        <i class="fas fa-rotate-right"></i>
-                        <span>Refresh</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="adminRiskSummary" id="riskSummaryStrip"></div>
-
-                  <div class="adminQueueToolbar">
-                    <div class="adminSearchWrap">
-                      <i class="fas fa-search"></i>
-                      <input id="riskSearchInput" class="adminSearchInput" type="text" placeholder="Search by title, target, category, or status" />
-                    </div>
-
-                    <div class="adminToolbarBlock">
-                      <div class="adminToolbarLabel">Severity</div>
-                      <div class="adminFilterChips" id="riskSeverityFilters"></div>
-                    </div>
-
-                    <div class="adminToolbarBlock">
-                      <div class="adminToolbarLabel">Category</div>
-                      <div class="adminFilterChips" id="riskCategoryFilters"></div>
-                    </div>
-                  </div>
-
-                  <div class="adminTableShell">
-                    <div class="adminTableHead">
-                      <div>Issue</div>
-                      <div>Category</div>
-                      <div>Subject</div>
-                      <div>State</div>
-                      <div>Severity</div>
-                      <div>Actions</div>
-                      <div></div>
-                      <div></div>
-                    </div>
-                    <div id="riskRows" class="adminTableBody"></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="adminPanelView" data-panel="logs">
-                <div class="adminPanelCard">
-                  <div class="adminSectionHead">
-                    <div>
-                      <div class="adminSectionEyebrow">Audit Logs</div>
-                      <h2 class="adminSectionTitle">Action Trail</h2>
-                      <div class="adminSectionSub">Track what the admin did, when they did it, and what they touched.</div>
-                    </div>
-
-                    <div class="adminSectionActions">
-                      <button class="adminPrimaryBtn" type="button" id="logsRefreshBtn">
-                        <i class="fas fa-rotate-right"></i>
-                        <span>Refresh</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div class="adminLogsSummary" id="logsSummaryStrip"></div>
-
-                  <div class="adminQueueToolbar">
-                    <div class="adminSearchWrap">
-                      <i class="fas fa-search"></i>
-                      <input id="logsSearchInput" class="adminSearchInput" type="text" placeholder="Search by actor, action, target, or summary" />
-                    </div>
-
-                    <div class="adminToolbarBlock">
-                      <div class="adminToolbarLabel">Action Group</div>
-                      <div class="adminFilterChips" id="logsTypeFilters"></div>
-                    </div>
-                  </div>
-
-                  <div id="logsRows" class="adminLogsFeed"></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="adminDetailPanel" id="adminDetailPanel" aria-hidden="true">
-              <div class="adminDetailCard">
-                <div class="adminDetailHeader">
-                  <div>
-                    <div class="adminDetailEyebrow">Inspector</div>
-                    <h2 class="adminDetailTitle" id="adminDetailTitle">Admin Inspector</h2>
-                  </div>
-                  <button id="adminDetailCloseBtn" class="adminGhostBtn adminIconBtn" type="button" aria-label="Close inspector">
-                    <i class="fas fa-xmark"></i>
-                  </button>
-                </div>
-                <div class="adminDetailText" id="adminDetailBody">
-                  Select a queue item, user, log, or risk flag to inspect details here.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Balance</th>
+              <th>Joined</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr><td colspan="7" class="empty-row">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <script src="/static/js/admin-shell.js" defer></script>
-  </body>
+    <!-- WITHDRAWALS -->
+    <div class="tab-panel" id="panel-withdrawals">
+      <div class="panel-head">
+        <h2>Withdrawals</h2>
+        <button class="btn btn-ghost btn-sm" id="refreshWithdrawals">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Amount (GHS)</th>
+              <th>Network</th>
+              <th>Number</th>
+              <th>Name on account</th>
+              <th>Requested</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="withdrawalsTableBody">
+            <tr><td colspan="8" class="empty-row">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PAYMENTS -->
+    <div class="tab-panel" id="panel-payments">
+      <div class="panel-head">
+        <h2>Payments</h2>
+        <button class="btn btn-ghost btn-sm" id="refreshPayments">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Type</th>
+              <th>Amount (GHS)</th>
+              <th>Reference</th>
+              <th>Provider</th>
+              <th>Requested</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="paymentsTableBody">
+            <tr><td colspan="8" class="empty-row">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TASKS -->
+    <div class="tab-panel" id="panel-tasks">
+      <div class="panel-head">
+        <h2>Tasks</h2>
+        <div class="panel-head-actions">
+          <button class="btn btn-ghost btn-sm" id="refreshTasks">Refresh</button>
+          <button class="btn btn-primary btn-sm" id="newTaskBtn">+ New task</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Reward (GHS)</th>
+              <th>Sort</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tasksTableBody">
+            <tr><td colspan="6" class="empty-row">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- LEVELS -->
+    <div class="tab-panel" id="panel-levels">
+      <div class="panel-head">
+        <h2>Level economics</h2>
+        <button class="btn btn-ghost btn-sm" id="refreshLevels">Refresh</button>
+      </div>
+      <p class="hint" style="margin-bottom:12px;">Edit unlock fees, final-stage fees and completion rewards. Changes apply to future unlocks/completions immediately.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Level</th>
+              <th>Unlock fee</th>
+              <th>Final-stage fee</th>
+              <th>Completion reward</th>
+              <th>Tasks (base/total)</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="levelsTableBody">
+            <tr><td colspan="7" class="empty-row">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- BROADCAST -->
+    <div class="tab-panel" id="panel-broadcast">
+      <div class="panel-head">
+        <h2>Broadcast a message</h2>
+      </div>
+      <form id="broadcastForm" class="broadcast-form">
+        <label class="field">
+          <span>Send to</span>
+          <select id="broadcastTarget" class="field-select">
+            <option value="all">All users</option>
+            <option value="active">Active (non-blocked) users</option>
+            <option value="blocked">Blocked users</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Title</span>
+          <input type="text" id="broadcastTitle" placeholder="e.g. Scheduled maintenance" required>
+        </label>
+        <label class="field">
+          <span>Message</span>
+          <textarea id="broadcastBody" rows="5" placeholder="Write the announcement…" required></textarea>
+        </label>
+        <button type="submit" class="btn btn-primary" id="broadcastSubmit">Send broadcast</button>
+        <p class="hint" id="broadcastHint"></p>
+      </form>
+    </div>
+
+    <!-- RISK FLAGS -->
+    <div class="tab-panel" id="panel-risk">
+      <div class="panel-head">
+        <h2>Risk flags</h2>
+        <div class="panel-head-actions">
+          <select id="riskStatusFilter" class="field-select">
+            <option value="open">Open</option>
+            <option value="resolved">Resolved</option>
+            <option value="">All</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" id="refreshRisk">Refresh</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>Category</th>
+              <th>Title</th>
+              <th>User</th>
+              <th>Raised</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="riskTableBody">
+            <tr><td colspan="7" class="empty-row">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- AUDIT LOG -->
+    <div class="tab-panel" id="panel-audit">
+      <div class="panel-head">
+        <h2>Audit log</h2>
+        <div class="panel-head-actions">
+          <input type="search" id="auditSearch" class="search-input" placeholder="Search actor, target or summary…">
+          <button class="btn btn-ghost btn-sm" id="refreshAudit">Refresh</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Actor</th>
+              <th>Group</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Summary</th>
+            </tr>
+          </thead>
+          <tbody id="auditTableBody">
+            <tr><td colspan="6" class="empty-row">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</section>
+
+<!-- ===================== USER DETAIL DRAWER ===================== -->
+<div id="userDrawerBackdrop" class="drawer-backdrop" hidden>
+  <aside class="drawer">
+    <div class="drawer-head">
+      <div>
+        <h3 id="drawerUserName">User</h3>
+        <span class="drawer-sub mono" id="drawerUserId"></span>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="drawerClose">Close</button>
+    </div>
+
+    <div class="drawer-body" id="drawerBody">
+      <div class="empty-row">Loading…</div>
+    </div>
+  </aside>
+</div>
+
+<!-- ===================== CONFIRM / REASON MODAL ===================== -->
+<div id="modalBackdrop" class="modal-backdrop" hidden>
+  <div class="modal-card">
+    <h3 id="modalTitle">Confirm</h3>
+    <p id="modalBody"></p>
+    <label class="field" id="modalTextField" hidden>
+      <span id="modalTextLabel">Value</span>
+      <input type="text" id="modalTextInput" placeholder="" autocomplete="off">
+    </label>
+    <label class="field" id="modalTextareaField" hidden>
+      <span id="modalTextareaLabel">Value</span>
+      <textarea id="modalTextareaInput" rows="3"></textarea>
+    </label>
+    <label class="field" id="modalSelectField" hidden>
+      <span id="modalSelectLabel">Category</span>
+      <select id="modalSelectInput" class="field-select"></select>
+    </label>
+    <label class="field" id="modalAmountField" hidden>
+      <span id="modalAmountLabel">Amount (GHS)</span>
+      <input type="number" id="modalAmountInput" name="admin_action_amount" placeholder="0.01" step="0.01" inputmode="decimal" autocomplete="off">
+    </label>
+    <label class="field" id="modalReasonField" hidden>
+      <span>Reason (optional)</span>
+      <input type="text" id="modalReasonInput" name="admin_action_reason" placeholder="e.g. suspicious activity" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    </label>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="modalCancel">Cancel</button>
+      <button class="btn btn-primary" id="modalConfirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/static/js/admin.js"></script>
+</body>
 </html>

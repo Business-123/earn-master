@@ -2633,7 +2633,7 @@ function showAddMethodModal() {
   const count =
     (window.LevelSystem?.state?.withdrawal?.methods || currentUser?.withdrawalMethods || []).length;
   if (count >= 2) {
-    alert("You can only add up to 2 withdrawal methods.");
+    showToast("You can only add up to 2 withdrawal methods.");
     return;
   }
   if ($("methodModal")) openMotionModal($("methodModal"));
@@ -2653,15 +2653,15 @@ async function addWithdrawalMethod() {
   const submitBtn = $("addMethodBtn");
 
   if (!network || !number || !name || !pin) {
-    alert("Please fill all fields");
+    showToast("Please fill all fields");
     return;
   }
   if (!validPhone(number)) {
-    alert("Account number must be 10 digits and start with 0");
+    showToast("Account number must be 10 digits and start with 0");
     return;
   }
   if (pin.length !== 6 || isNaN(pin)) {
-    alert("PIN must be 6 digits");
+    showToast("PIN must be 6 digits");
     return;
   }
 
@@ -2682,7 +2682,7 @@ async function addWithdrawalMethod() {
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.success === false) {
-      alert(data.message || data.error || "Failed to save withdrawal method.");
+      showToast(data.message || data.error || "Failed to save withdrawal method.");
       return;
     }
 

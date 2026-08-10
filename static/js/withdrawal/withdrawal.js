@@ -304,9 +304,17 @@ async function deleteSelectedMethod() {
     return;
   }
 
-  const confirmed = window.confirm(
-    `Delete this withdrawal method?\n\n${method.network} • ${method.number}\n${method.name}`
-  );
+  const confirmed = window.showConfirmModal
+    ? await window.showConfirmModal({
+        title: "Delete withdrawal method?",
+        message: `${method.network} • ${method.number} — ${method.name}`,
+        confirmText: "Delete",
+        cancelText: "Cancel",
+        danger: true,
+      })
+    : window.confirm(
+        `Delete this withdrawal method?\n\n${method.network} • ${method.number}\n${method.name}`
+      );
   if (!confirmed) return;
 
   const deleteBtn = document.getElementById("withdrawDeleteMethodBtnNew");

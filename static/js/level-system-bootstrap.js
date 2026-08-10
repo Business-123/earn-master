@@ -134,8 +134,8 @@
     state.levelDetail = null;
     state.taskRunner = null;
 
-    alert(message);
-    window.location.reload();
+    toast(message);
+    setTimeout(() => window.location.reload(), 900);
   }
 
   async function apiPost(path, payload) {
