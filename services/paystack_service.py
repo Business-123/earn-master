@@ -233,7 +233,14 @@ def initialize_paystack_transaction(
     return {
         "status": True,
         "data": {
-            "authorization_url": data.get("authorizationUrl"),
+            # Use the hub's own branded interstitial (checkoutUrl) rather than
+            # authorizationUrl, which points straight at Paystack's hosted
+            # checkout and skips the hub's "redirecting to checkout" page
+            # entirely. The key is still named authorization_url so the
+            # callers below (initialize_level_unlock_payment /
+            # initialize_final_stage_payment) and the frontend that reads
+            # payment.authorization_url don't need to change.
+            "authorization_url": data.get("checkoutUrl"),
             "access_code": None,
             "reference": data.get("reference") or reference,
             "status": "pending",
