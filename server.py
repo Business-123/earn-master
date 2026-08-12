@@ -3158,6 +3158,207 @@ def admin_broadcast():
 # ----------------------
 # ANALYTICS
 # ----------------------
+@app.get("/api/admin/notifications")
+@admin_api_required
+def admin_notifications():
+    """Lightweight, computed notification feed — no separate table to keep
+    in sync. Pulls the most recent actionable items across withdrawals,
+    payments and risk flags so the admin bell always reflects live state."""
+    conn = get_db()
+    items = []
+
+    withdrawal_rows = conn.execute(
+        "SELECT id, user_id, payload, created_at FROM requests "
+        "WHERE kind='withdrawal' AND status='pending' ORDER BY created_at DESC LIMIT 10"
+    ).fetchall()
+    for row in withdrawal_rows:
+        payload = parse_json_text(row["payload"], {})
+        amount = payload.get("amount")
+        items.append({
+            "id": f"withdrawal:{row['id']}",
+            "type": "withdrawal",
+            "severity": "warn",
+            "title": "Pending withdrawal",
+            "body": f"{row['user_id']} requested GHS {amount}" if amount else f"{row['user_id']} requested a withdrawal",
+            "created_at": row["created_at"],
+            "tab": "withdrawals",
+        })
+
+    if table_exists(conn, "manual_payments"):
+        payment_rows = conn.execute(
+            "SELECT user_id, amount, reference, created_at FROM manual_payments "
+            "WHERE status='pending' ORDER BY created_at DESC LIMIT 10"
+        ).fetchall()
+        for row in payment_rows:
+            items.append({
+                "id": f"payment:{row['reference']}",
+                "type": "payment",
+                "severity": "warn",
+                "title": "Pending payment",
+                "body": f"{row['user_id']} — GHS {row['amount']}",
+                "created_at": row["created_at"],
+                "tab": "payments",
+            })
+
+    if table_exists(conn, "risk_flags"):
+        risk_rows = conn.execute(
+            "SELECT id, title, severity, user_id, created_at FROM risk_flags "
+            "WHERE status='open' ORDER BY created_at DESC LIMIT 10"
+        ).fetchall()
+        for row in risk_rows:
+            items.append({
+                "id": f"risk:{row['id']}",
+                "type": "risk",
+                "severity": "bad" if str(row["severity"]).lower() in ("high", "critical") else "warn",
+                "title": row["title"],
+                "body": row["user_id"] or "",
+                "created_at": row["created_at"],
+                "tab": "risk",
+            })
+
+    conn.close()
+    items.sort(key=lambda i: i["created_at"] or "", reverse=True)
+    return jsonify({"items": items[:20], "count": len(items)})
+
+
+@app.post("/api/admin/users/bulk-block")
+@admin_api_required
+def admin_bulk_block_users():
+    data = request.json or {}
+    user_ids = data.get("user_ids") or []
+    blocked = bool(data.get("blocked"))
+    reason = (data.get("reason") or "").strip() or None
+
+    if not isinstance(user_ids, list) or not user_ids:
+        return jsonify({"error": "No users selected."}), 400
+
+    actor_id = get_admin_actor_id()
+    updated, failed = [], []
+    for user_id in user_ids:
+        try:
+            set_user_blocked(user_id=user_id, blocked=blocked, reason=reason, actor_id=actor_id)
+            updated.append(user_id)
+        except ValueError:
+            failed.append(user_id)
+
+    if updated:
+        log_audit_event(
+            action_group="user",
+            action_type="bulk_block" if blocked else "bulk_unblock",
+            target_type="user",
+            target_id=",".join(updated),
+            summary=f"{'Blocked' if blocked else 'Unblocked'} {len(updated)} user(s) in bulk",
+            actor_id=actor_id,
+            reason=reason,
+        )
+
+    return jsonify({"status": "updated", "updated": updated, "failed": failed})
+
+
+@app.post("/api/admin/task-categories")
+@admin_api_required
+def admin_create_task_category():
+    data = request.json or {}
+    display_name = (data.get("display_name") or "").strip()
+    source_type = (data.get("source_type") or "bonus").strip() or "bonus"
+    raw_key = (data.get("category_key") or display_name).strip().lower()
+    category_key = "".join(ch if ch.isalnum() else "_" for ch in raw_key).strip("_")
+
+    if not display_name or not category_key:
+        return jsonify({"error": "Display name is required."}), 400
+
+    conn = get_db()
+    existing = conn.execute(
+        "SELECT id FROM task_category_catalog WHERE category_key=?", (category_key,)
+    ).fetchone()
+    if existing:
+        conn.close()
+        return jsonify({"error": "A category with that key already exists."}), 400
+
+    conn.execute(
+        """
+        INSERT INTO task_category_catalog (category_key, display_name, source_type, is_active, created_at)
+        VALUES (?, ?, ?, 1, ?)
+        """,
+        (category_key, display_name, source_type, now()),
+    )
+    conn.commit()
+    new_id = conn.execute(
+        "SELECT id FROM task_category_catalog WHERE category_key=?", (category_key,)
+    ).fetchone()["id"]
+    conn.close()
+
+    log_audit_event(
+        action_group="tasks",
+        action_type="create_category",
+        target_type="task_category",
+        target_id=str(new_id),
+        summary=f"Created task category '{display_name}' ({category_key})",
+        actor_id=get_admin_actor_id(),
+    )
+    return jsonify({"status": "created", "id": new_id, "category_key": category_key})
+
+
+@app.post("/api/admin/task-categories/<int:category_id>/edit")
+@admin_api_required
+def admin_edit_task_category(category_id):
+    data = request.json or {}
+    conn = get_db()
+    existing = conn.execute("SELECT * FROM task_category_catalog WHERE id=?", (category_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({"error": "Category not found."}), 404
+
+    display_name = (data.get("display_name") or existing["display_name"]).strip()
+    source_type = (data.get("source_type") or existing["source_type"]).strip()
+    if not display_name:
+        conn.close()
+        return jsonify({"error": "Display name is required."}), 400
+
+    conn.execute(
+        "UPDATE task_category_catalog SET display_name=?, source_type=? WHERE id=?",
+        (display_name, source_type, category_id),
+    )
+    conn.commit()
+    conn.close()
+
+    log_audit_event(
+        action_group="tasks",
+        action_type="edit_category",
+        target_type="task_category",
+        target_id=str(category_id),
+        summary=f"Edited task category '{display_name}'",
+        actor_id=get_admin_actor_id(),
+    )
+    return jsonify({"status": "updated"})
+
+
+@app.post("/api/admin/task-categories/<int:category_id>/toggle-active")
+@admin_api_required
+def admin_toggle_task_category_active(category_id):
+    data = request.json or {}
+    is_active = bool(data.get("is_active"))
+
+    conn = get_db()
+    existing = conn.execute("SELECT display_name FROM task_category_catalog WHERE id=?", (category_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({"error": "Category not found."}), 404
+    conn.execute("UPDATE task_category_catalog SET is_active=? WHERE id=?", (1 if is_active else 0, category_id))
+    conn.commit()
+    conn.close()
+
+    log_audit_event(
+        action_group="tasks",
+        action_type="toggle_category_active",
+        target_type="task_category",
+        target_id=str(category_id),
+        summary=f"{'Activated' if is_active else 'Deactivated'} category '{existing['display_name']}'",
+        actor_id=get_admin_actor_id(),
+    )
+    return jsonify({"status": "updated"})
+
+
 @app.get("/api/admin/analytics")
 @admin_api_required
 def admin_analytics():

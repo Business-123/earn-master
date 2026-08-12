@@ -62,6 +62,21 @@
   <header class="topbar">
     <div class="topbar-actions">
       <input type="search" id="globalSearch" class="search-input" placeholder="Jump to user (id, phone, email)…">
+      <div class="notif-wrap">
+        <button class="btn btn-ghost btn-sm notif-bell" id="notifBellBtn" title="Notifications" aria-label="Notifications">
+          <i class="fas fa-bell"></i>
+          <span class="notif-count" id="notifCount" hidden>0</span>
+        </button>
+        <div class="notif-dropdown" id="notifDropdown" hidden>
+          <div class="notif-dropdown-head">
+            <span>Notifications</span>
+            <button class="btn btn-ghost btn-sm" id="notifRefreshBtn" title="Refresh"><i class="fas fa-rotate"></i></button>
+          </div>
+          <div class="notif-list" id="notifList">
+            <div class="empty-row">Loading…</div>
+          </div>
+        </div>
+      </div>
       <button class="btn btn-ghost btn-sm" id="themeToggle" title="Toggle theme">☀️</button>
       <span class="topbar-user" id="adminUsername"></span>
       <button class="btn btn-ghost" id="logoutBtn">Log out</button>
@@ -129,10 +144,17 @@
           <button class="btn btn-ghost btn-sm" id="exportUsersCsv">Export CSV</button>
         </div>
       </div>
+      <div class="bulk-action-bar" id="userBulkBar" hidden>
+        <span id="userBulkCount">0 selected</span>
+        <button class="btn btn-sm btn-reject" id="userBulkBlockBtn">Block selected</button>
+        <button class="btn btn-sm btn-approve" id="userBulkUnblockBtn">Unblock selected</button>
+        <button class="btn btn-sm btn-ghost" id="userBulkClearBtn">Clear</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
+              <th class="col-check"><input type="checkbox" id="userSelectAll"></th>
               <th>User</th>
               <th>Phone</th>
               <th>Email</th>
@@ -143,7 +165,7 @@
             </tr>
           </thead>
           <tbody id="usersTableBody">
-            <tr><td colspan="7" class="empty-row">Loading…</td></tr>
+            <tr><td colspan="8" class="empty-row">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -153,7 +175,10 @@
     <div class="tab-panel" id="panel-withdrawals">
       <div class="panel-head">
         <h2>Withdrawals</h2>
-        <button class="btn btn-ghost btn-sm" id="refreshWithdrawals">Refresh</button>
+        <div class="panel-head-actions">
+          <button class="btn btn-ghost btn-sm" id="exportWithdrawalsCsv">Export CSV</button>
+          <button class="btn btn-ghost btn-sm" id="refreshWithdrawals">Refresh</button>
+        </div>
       </div>
 
       <div class="settings-card" id="withdrawalFeeSettingsCard">
@@ -197,7 +222,10 @@
     <div class="tab-panel" id="panel-payments">
       <div class="panel-head">
         <h2>Payments</h2>
-        <button class="btn btn-ghost btn-sm" id="refreshPayments">Refresh</button>
+        <div class="panel-head-actions">
+          <button class="btn btn-ghost btn-sm" id="exportPaymentsCsv">Export CSV</button>
+          <button class="btn btn-ghost btn-sm" id="refreshPayments">Refresh</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -222,6 +250,19 @@
 
     <!-- TASKS -->
     <div class="tab-panel" id="panel-tasks">
+      <div class="settings-card" id="categoriesCard">
+        <div class="settings-card-head">
+          <div>
+            <div class="settings-card-title">Task categories</div>
+            <div class="settings-card-sub">Categories power the dropdown when creating a task above. Deactivating a category hides it from that dropdown without deleting past tasks.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="newCategoryBtn">+ New category</button>
+        </div>
+        <div class="category-list" id="categoryList">
+          <div class="empty-row">Loading…</div>
+        </div>
+      </div>
+
       <div class="panel-head">
         <h2>Tasks</h2>
         <div class="panel-head-actions">

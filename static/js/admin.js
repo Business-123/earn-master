@@ -17,6 +17,9 @@
   let usersCache = [];
   let tasksCache = [];
   let categoriesCache = [];
+  let withdrawalsCache = [];
+  let paymentsCache = [];
+  const selectedUserIds = new Set();
 
   // ---------------- helpers ----------------
   async function api(path, options = {}) {
@@ -149,6 +152,82 @@
   }
   initSidebar();
 
+  // ---------------- notifications ----------------
+  let notifPollTimer = null;
+
+  async function loadNotifications() {
+    try {
+      const data = await api("/api/admin/notifications");
+      renderNotifications(data.items || []);
+    } catch (err) {
+      /* the bell is a nice-to-have; fail quietly */
+    }
+  }
+
+  function renderNotifications(items) {
+    const countEl = $("#notifCount");
+    const listEl = $("#notifList");
+    if (!countEl || !listEl) return;
+    if (!items.length) {
+      countEl.hidden = true;
+      listEl.innerHTML = `<div class="empty-row">You're all caught up.</div>`;
+      return;
+    }
+    countEl.hidden = false;
+    countEl.textContent = items.length > 9 ? "9+" : String(items.length);
+    listEl.innerHTML = items.map((n) => `
+      <button type="button" class="notif-item" data-notif-tab="${escapeHtml(n.tab)}">
+        <span class="notif-dot notif-${escapeHtml(n.severity || "warn")}"></span>
+        <span class="notif-item-body">
+          <span class="notif-item-title">${escapeHtml(n.title)}</span>
+          <span class="notif-item-sub">${escapeHtml(n.body || "")}</span>
+          <span class="notif-item-time">${dateFmt(n.created_at)}</span>
+        </span>
+      </button>
+    `).join("");
+  }
+
+  const notifBellBtn = $("#notifBellBtn");
+  if (notifBellBtn) {
+    notifBellBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const dd = $("#notifDropdown");
+      dd.hidden = !dd.hidden;
+      if (!dd.hidden) loadNotifications();
+    });
+  }
+  const notifRefreshBtn = $("#notifRefreshBtn");
+  if (notifRefreshBtn) {
+    notifRefreshBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      loadNotifications();
+    });
+  }
+  document.addEventListener("click", (e) => {
+    const wrap = $(".notif-wrap");
+    const dd = $("#notifDropdown");
+    if (dd && !dd.hidden && wrap && !wrap.contains(e.target)) dd.hidden = true;
+  });
+  document.addEventListener("click", (e) => {
+    const item = e.target.closest("[data-notif-tab]");
+    if (!item) return;
+    const tab = item.dataset.notifTab;
+    const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+    if (btn) btn.click();
+    const dd = $("#notifDropdown");
+    if (dd) dd.hidden = true;
+  });
+
+  function startNotificationPolling() {
+    loadNotifications();
+    clearInterval(notifPollTimer);
+    notifPollTimer = setInterval(loadNotifications, 25000);
+  }
+  function stopNotificationPolling() {
+    clearInterval(notifPollTimer);
+    notifPollTimer = null;
+  }
+
   // ---------------- modal confirm (generic) ----------------
   function confirmAction({
     title,
@@ -276,6 +355,7 @@
     closeModal();
     loginScreen.hidden = false;
     dashboard.hidden = true;
+    stopNotificationPolling();
   }
 
   function showDashboard() {
@@ -287,10 +367,11 @@
     loadWithdrawalFeeSetting();
     loadPayments();
     loadTasks();
-    loadCategories();
+    loadCategories().then(renderCategories);
     loadLevels();
     loadRisk();
     loadAudit();
+    startNotificationPolling();
   }
 
   loginForm.addEventListener("submit", async (e) => {
@@ -434,11 +515,15 @@
   function renderUsers(users) {
     const tbody = $("#usersTableBody");
     if (!users.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="empty-row">No users yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No users yet.</td></tr>`;
+      updateUserBulkBar();
       return;
     }
     tbody.innerHTML = users.map((u) => `
       <tr class="row-clickable" data-open-user="${escapeHtml(u.user_id)}">
+        <td class="col-check" data-no-open>
+          <input type="checkbox" class="user-row-check" data-user-check="${escapeHtml(u.user_id)}" ${selectedUserIds.has(u.user_id) ? "checked" : ""}>
+        </td>
         <td>
           <span class="cell-name">${escapeHtml(u.full_name || "N/A")}</span>
           <span class="cell-sub">${escapeHtml(u.user_id)}</span>
@@ -457,7 +542,75 @@
         </td>
       </tr>
     `).join("");
+    updateUserBulkBar();
   }
+
+  // ---------------- users: bulk select ----------------
+  function updateUserBulkBar() {
+    const bar = $("#userBulkBar");
+    const countEl = $("#userBulkCount");
+    if (!bar || !countEl) return;
+    bar.hidden = selectedUserIds.size === 0;
+    countEl.textContent = `${selectedUserIds.size} selected`;
+    const selectAll = $("#userSelectAll");
+    if (selectAll) {
+      const visibleIds = $$(".user-row-check").map((c) => c.dataset.userCheck);
+      selectAll.checked = visibleIds.length > 0 && visibleIds.every((id) => selectedUserIds.has(id));
+    }
+  }
+
+  document.addEventListener("change", (e) => {
+    const check = e.target.closest("[data-user-check]");
+    if (check) {
+      const id = check.dataset.userCheck;
+      if (check.checked) selectedUserIds.add(id); else selectedUserIds.delete(id);
+      updateUserBulkBar();
+      return;
+    }
+    if (e.target.id === "userSelectAll") {
+      const visible = $$(".user-row-check");
+      if (e.target.checked) visible.forEach((c) => { c.checked = true; selectedUserIds.add(c.dataset.userCheck); });
+      else visible.forEach((c) => { c.checked = false; selectedUserIds.delete(c.dataset.userCheck); });
+      updateUserBulkBar();
+    }
+  });
+
+  const userBulkClearBtn = $("#userBulkClearBtn");
+  if (userBulkClearBtn) {
+    userBulkClearBtn.addEventListener("click", () => {
+      selectedUserIds.clear();
+      renderUsers(usersCache.filter((u) => $("#userSearch").value.trim()
+        ? [u.full_name, u.phone, u.email, u.user_id].some((v) => String(v || "").toLowerCase().includes($("#userSearch").value.trim().toLowerCase()))
+        : true));
+    });
+  }
+
+  async function bulkSetBlocked(blocked) {
+    if (!selectedUserIds.size) return;
+    const result = await confirmAction({
+      title: blocked ? "Block selected users" : "Unblock selected users",
+      body: `This will ${blocked ? "block" : "unblock"} ${selectedUserIds.size} user(s).`,
+      needReason: blocked,
+      confirmLabel: blocked ? "Block all" : "Unblock all",
+    });
+    if (!result) return;
+    try {
+      const data = await api("/api/admin/users/bulk-block", {
+        method: "POST",
+        body: { user_ids: Array.from(selectedUserIds), blocked, reason: result.reason || undefined },
+      });
+      toast(`${data.updated.length} user(s) ${blocked ? "blocked" : "unblocked"}${data.failed.length ? `, ${data.failed.length} failed` : ""}`, data.failed.length ? "error" : "good");
+      selectedUserIds.clear();
+      await Promise.all([loadUsers(), loadOverview()]);
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+
+  const userBulkBlockBtn = $("#userBulkBlockBtn");
+  if (userBulkBlockBtn) userBulkBlockBtn.addEventListener("click", () => bulkSetBlocked(true));
+  const userBulkUnblockBtn = $("#userBulkUnblockBtn");
+  if (userBulkUnblockBtn) userBulkUnblockBtn.addEventListener("click", () => bulkSetBlocked(false));
 
   $("#userSearch").addEventListener("input", (e) => {
     const q = e.target.value.trim().toLowerCase();
@@ -498,7 +651,7 @@
 
   document.addEventListener("click", async (e) => {
     const row = e.target.closest("[data-open-user]");
-    if (row && !e.target.closest("[data-toggle-block]")) {
+    if (row && !e.target.closest("[data-toggle-block]") && !e.target.closest("[data-no-open]")) {
       openUserDrawer(row.dataset.openUser);
       return;
     }
@@ -743,6 +896,7 @@
     const tbody = $("#withdrawalsTableBody");
     try {
       const rows = await api("/api/admin/withdrawals");
+      withdrawalsCache = rows;
       if (!rows.length) {
         tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No withdrawal requests yet.</td></tr>`;
         return;
@@ -775,6 +929,22 @@
   }
 
   $("#refreshWithdrawals").addEventListener("click", loadWithdrawals);
+
+  const exportWithdrawalsCsvBtn = $("#exportWithdrawalsCsv");
+  if (exportWithdrawalsCsvBtn) {
+    exportWithdrawalsCsvBtn.addEventListener("click", () => {
+      downloadCsv("withdrawals.csv", withdrawalsCache.map((r) => ({
+        id: r.id,
+        user_id: r.user_state?.user_id || r.user_id || "",
+        amount: r.amount,
+        network: r.network || "",
+        number: r.number || "",
+        name_on_account: r.name || "",
+        requested_at: r.created_at || "",
+        status: r.status || "",
+      })));
+    });
+  }
 
   // ---------------- withdrawal verification fee ----------------
   async function loadWithdrawalFeeSetting() {
@@ -846,6 +1016,7 @@
     const tbody = $("#paymentsTableBody");
     try {
       const rows = await api("/api/admin/payments");
+      paymentsCache = rows;
       if (!rows.length) {
         tbody.innerHTML = `<tr><td colspan="8" class="empty-row">No payments yet.</td></tr>`;
         return;
@@ -878,6 +1049,22 @@
   }
 
   $("#refreshPayments").addEventListener("click", loadPayments);
+
+  const exportPaymentsCsvBtn = $("#exportPaymentsCsv");
+  if (exportPaymentsCsvBtn) {
+    exportPaymentsCsvBtn.addEventListener("click", () => {
+      downloadCsv("payments.csv", paymentsCache.map((p) => ({
+        user_id: p.user_id || "",
+        full_name: p.full_name || "",
+        type: p.payment_type || p.type || "",
+        amount: p.paid_amount ?? p.amount,
+        reference: p.reference || "",
+        provider: p.provider || "",
+        requested_at: p.created_at || "",
+        status: p.status || "",
+      })));
+    });
+  }
 
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-payment-decision]");
@@ -913,6 +1100,97 @@
       categoriesCache = await api("/api/admin/task-categories");
     } catch (e) { categoriesCache = []; }
   }
+
+  function renderCategories() {
+    const el = $("#categoryList");
+    if (!el) return;
+    if (!categoriesCache.length) {
+      el.innerHTML = `<div class="empty-row">No categories yet. Add one to unlock task creation.</div>`;
+      return;
+    }
+    el.innerHTML = categoriesCache.map((c) => `
+      <div class="category-row">
+        <div class="category-row-main">
+          <span class="category-row-name">${escapeHtml(c.display_name)}</span>
+          <span class="category-row-sub">${escapeHtml(c.category_key)} · ${escapeHtml(c.source_type || "bonus")}</span>
+        </div>
+        <div class="category-row-actions">
+          ${statusBadge(c.is_active ? "active" : "blocked")}
+          <button class="btn btn-sm btn-ghost" data-edit-category="${c.id}" data-name="${escapeHtml(c.display_name)}">Edit</button>
+          <button class="btn btn-sm ${c.is_active ? "btn-reject" : "btn-approve"}" data-toggle-category="${c.id}" data-active="${c.is_active ? "1" : "0"}">
+            ${c.is_active ? "Deactivate" : "Activate"}
+          </button>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  const newCategoryBtn = $("#newCategoryBtn");
+  if (newCategoryBtn) {
+    newCategoryBtn.addEventListener("click", async () => {
+      const result = await confirmAction({
+        title: "New task category",
+        body: "Categories group bonus tasks and populate the task-creation dropdown.",
+        needText: true,
+        textLabel: "Display name",
+        confirmLabel: "Create",
+      });
+      if (!result) return;
+      try {
+        await api("/api/admin/task-categories", { method: "POST", body: { display_name: result.text } });
+        toast("Category created", "good");
+        await loadCategories();
+        renderCategories();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    });
+  }
+
+  document.addEventListener("click", async (e) => {
+    const editBtn = e.target.closest("[data-edit-category]");
+    if (editBtn) {
+      const id = editBtn.dataset.editCategory;
+      const result = await confirmAction({
+        title: "Edit category",
+        body: "Update the display name shown to admins and in task creation.",
+        needText: true,
+        textLabel: "Display name",
+        textValue: editBtn.dataset.name || "",
+        confirmLabel: "Save",
+      });
+      if (!result) return;
+      try {
+        await api(`/api/admin/task-categories/${encodeURIComponent(id)}/edit`, {
+          method: "POST",
+          body: { display_name: result.text },
+        });
+        toast("Category updated", "good");
+        await loadCategories();
+        renderCategories();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+      return;
+    }
+
+    const toggleBtn = e.target.closest("[data-toggle-category]");
+    if (toggleBtn) {
+      const id = toggleBtn.dataset.toggleCategory;
+      const nextActive = toggleBtn.dataset.active === "0";
+      try {
+        await api(`/api/admin/task-categories/${encodeURIComponent(id)}/toggle-active`, {
+          method: "POST",
+          body: { is_active: nextActive },
+        });
+        toast(`Category ${nextActive ? "activated" : "deactivated"}`, "good");
+        await loadCategories();
+        renderCategories();
+      } catch (err) {
+        toast(err.message, "error");
+      }
+    }
+  });
 
   async function loadTasks() {
     const tbody = $("#tasksTableBody");

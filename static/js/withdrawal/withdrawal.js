@@ -482,7 +482,8 @@ const confirmed = window.showConfirmModal
   }
 }
 
-  function init() {
+  function init(options = {}) {
+    const { promptVerification = false } = options;
     ensureWithdrawalShell();
 
     if (window.mountUiNotice) {
@@ -522,6 +523,7 @@ if (deleteMethodBtn && !deleteMethodBtn.dataset.bound) {
     loadEligibility()
       .then((eligibility) => {
         if (
+          promptVerification &&
           eligibility?.reason_code === "verification_fee_required" &&
           !verificationPromptShown
         ) {

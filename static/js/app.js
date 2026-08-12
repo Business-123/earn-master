@@ -2188,7 +2188,7 @@ function navigateTo(page, navItem = null) {
       if (typeof w.loadMethods === "function") w.loadMethods().catch(() => null);
       if (typeof w.loadEligibility === "function") w.loadEligibility().catch(() => null);
       if (typeof w.loadHistory === "function") w.loadHistory().catch(() => null);
-      if (typeof w.init === "function") w.init();
+      if (typeof w.init === "function") w.init({ promptVerification: walletActiveSubTab === "withdraw" });
     }
   }
 }
@@ -2752,13 +2752,21 @@ function bindCoreHandlers() {
     bindClickOnce(action, () => {
       navigateTo("wallet", document.querySelectorAll(".nav-item")[2]);
       setWalletSubTab(tab);
+      if (tab === "withdraw" && window.LevelSystem?.withdrawal?.init) {
+        window.LevelSystem.withdrawal.init({ promptVerification: true });
+      }
     });
   });
 
   document.querySelectorAll(".walletTabBtn").forEach((btn) => {
     const tab = btn.dataset.walletTab;
     if (!tab) return;
-    bindClickOnce(btn, () => setWalletSubTab(tab));
+    bindClickOnce(btn, () => {
+      setWalletSubTab(tab);
+      if (tab === "withdraw" && window.LevelSystem?.withdrawal?.init) {
+        window.LevelSystem.withdrawal.init({ promptVerification: true });
+      }
+    });
   });
 
   const methodModal = $("methodModal");
