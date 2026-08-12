@@ -611,8 +611,19 @@ def ensure_level_system_bootstrap():
     finally:
         conn.close()
 
+    # Always (re)apply schema.sql, not just when the level system looks
+    # entirely absent. schema.sql only uses CREATE TABLE IF NOT EXISTS /
+    # additive ensure_column-style migrations, so this is a safe no-op once
+    # everything already exists. Without this, any table added to schema.sql
+    # after a site's initial launch (e.g. withdrawal_verification_payments)
+    # would never get created on deployments where the five "core" tables
+    # checked above already existed from an earlier deploy - the exact bug
+    # that broke the withdrawal verification payment button in production,
+    # since apply_level_system_schema() was previously only called when
+    # missing_schema was True.
+    apply_level_system_schema()
+
     if missing_schema:
-        apply_level_system_schema()
         needs_level_seed = True
         needs_category_seed = True
 
