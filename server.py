@@ -79,6 +79,40 @@ app.register_blueprint(payment_bp)
 app.register_blueprint(task_bp)
 app.register_blueprint(message_bp)
 
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    """Safety net for any bug (missing DB column, None where a value was
+    expected, etc.) that isn't already turned into a clean 4xx JSON error by
+    a route. Without this, Flask returns a blank HTML 500 page for API
+    requests, which the frontend can't parse as JSON — it just falls back to
+    the generic 'Request failed.' message with no clue what broke. This logs
+    the real exception server-side and still gives the frontend a JSON body
+    with a readable message."""
+    from werkzeug.exceptions import HTTPException
+
+    if isinstance(exc, HTTPException):
+        return exc
+
+    import traceback
+
+    traceback.print_exc()
+
+    if request.path.startswith("/api/"):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": "Something went wrong on our end. Please try again in a moment.",
+                    "message": "Something went wrong on our end. Please try again in a moment.",
+                }
+            ),
+            500,
+        )
+
+    raise exc
+
+
 DATABASE = str(DATABASE_PATH)
 
 # --- Persistence diagnostic (safe to remove once volume mounting is confirmed) ---
@@ -323,6 +357,13 @@ def init_db():
     ensure_column(conn, "users", "review_reason", "TEXT")
     ensure_column(conn, "users", "welcome_popup_hidden", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "users", "avatar_key", "TEXT")
+    # Withdrawal verification fee flags. These also live in apply_schema.py's
+    # migration list, but that one only runs when a level-system table is
+    # entirely missing — a no-op on any deployment where those tables
+    # already exist. init_db() always runs on every boot, so this is the
+    # migration path that actually reaches every environment.
+    ensure_column(conn, "users", "withdrawal_verification_paid", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "users", "withdrawal_verification_paid_at", "TEXT")
 
     backfill_user_email_fields(conn)
     assign_missing_user_avatars(conn)

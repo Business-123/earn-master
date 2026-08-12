@@ -124,6 +124,31 @@
   });
   initTheme();
 
+  // ---------------- sidebar collapse ----------------
+  function initSidebar() {
+    const tabbar = $("#adminTabbar");
+    const main = $("#dashboardMain");
+    const toggleBtn = $("#sidebarToggleBtn");
+    if (!tabbar || !main || !toggleBtn) return;
+
+    function applyCollapsed(collapsed) {
+      tabbar.classList.toggle("collapsed", collapsed);
+      main.classList.toggle("sidebar-collapsed", collapsed);
+      toggleBtn.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+      toggleBtn.setAttribute("aria-label", toggleBtn.title);
+    }
+
+    const saved = localStorageSafeGet("em_admin_sidebar_collapsed");
+    applyCollapsed(saved === "1");
+
+    toggleBtn.addEventListener("click", () => {
+      const collapsed = !tabbar.classList.contains("collapsed");
+      applyCollapsed(collapsed);
+      localStorageSafeSet("em_admin_sidebar_collapsed", collapsed ? "1" : "0");
+    });
+  }
+  initSidebar();
+
   // ---------------- modal confirm (generic) ----------------
   function confirmAction({
     title,

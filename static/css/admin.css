@@ -141,9 +141,17 @@ button, input { font-family: inherit; font-size: inherit; color: inherit; }
 /* ---------------- Shell ---------------- */
 .dashboard { min-height: 100vh; display: flex; flex-direction: column; }
 
-.dashboard-body { flex: 1; display: flex; align-items: stretch; min-height: 0; }
+.dashboard-body { flex: 1; display: flex; align-items: stretch; min-height: 0; position: relative; }
 
-.dashboard-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.dashboard-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 220px;
+  transition: margin-left 0.22s cubic-bezier(.4,0,.2,1);
+}
+.dashboard-main.sidebar-collapsed { margin-left: 64px; }
 
 .topbar {
   display: flex;
@@ -179,22 +187,81 @@ button, input { font-family: inherit; font-size: inherit; color: inherit; }
   align-items: stretch;
   gap: 2px;
   width: 220px;
-  flex: 0 0 220px;
   padding: 16px 12px;
   border-right: 1px solid var(--a-stroke);
   border-bottom: none;
   background: var(--a-bg1);
   overflow-y: auto;
-  position: sticky;
+  overflow-x: hidden;
+  position: fixed;
+  left: 0;
   top: 0;
   height: 100vh;
+  z-index: 30;
+  transition: width 0.22s cubic-bezier(.4,0,.2,1), box-shadow 0.22s ease;
 }
+
+/* -------- collapsed / icon-rail state -------- */
+.tabbar.collapsed { width: 64px; }
+.tabbar.collapsed .tab-btn { justify-content: center; padding-left: 0; padding-right: 0; }
+.tabbar.collapsed .sidebar-brand { justify-content: center; padding-left: 0; padding-right: 0; }
+.tabbar.collapsed .sidebar-toggle i { transform: rotate(180deg); }
+
+/* hover-to-peek: expands over the content without pushing it */
+.tabbar.collapsed:hover {
+  width: 220px;
+  box-shadow: 14px 0 34px rgba(0, 0, 0, 0.38);
+  z-index: 50;
+}
+.tabbar.collapsed:hover .tab-btn { justify-content: flex-start; padding-left: 12px; padding-right: 12px; }
+.tabbar.collapsed:hover .sidebar-brand { justify-content: flex-start; padding-left: 10px; padding-right: 10px; }
+
 .sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 4px 10px 16px;
   margin-bottom: 8px;
   border-bottom: 1px solid var(--a-stroke);
+  position: relative;
+  transition: justify-content 0.15s ease;
 }
+.brand-name {
+  display: inline-block;
+  opacity: 1;
+  max-width: 160px;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 0.16s ease, max-width 0.16s ease;
+}
+.tabbar.collapsed .brand-name { opacity: 0; max-width: 0; }
+.tabbar.collapsed:hover .brand-name { opacity: 1; max-width: 160px; transition-delay: 0.06s; }
+
+.sidebar-toggle {
+  position: absolute;
+  top: 18px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--a-bg1);
+  border: 1px solid var(--a-stroke);
+  color: var(--a-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 10.5px;
+  z-index: 5;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.sidebar-toggle:hover { color: var(--a-accent); border-color: var(--a-accent); }
+.sidebar-toggle i { transition: transform 0.22s ease; display: block; }
+
 .tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: transparent;
   border: none;
   border-radius: 8px;
@@ -207,9 +274,23 @@ button, input { font-family: inherit; font-size: inherit; color: inherit; }
   border-bottom: none;
   white-space: nowrap;
   text-align: left;
+  position: relative;
+  transition: justify-content 0.15s ease, padding 0.15s ease;
 }
 .tab-btn:hover { color: var(--a-text); background: var(--a-surface2); }
 .tab-btn.active { color: var(--a-accent); background: var(--a-accent-soft); border-left-color: var(--a-accent); }
+.tab-icon { flex: 0 0 16px; text-align: center; font-size: 14px; }
+.tab-label {
+  display: inline-block;
+  opacity: 1;
+  max-width: 160px;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 0.16s ease, max-width 0.16s ease;
+}
+.tabbar.collapsed .tab-label { opacity: 0; max-width: 0; }
+.tabbar.collapsed:hover .tab-label { opacity: 1; max-width: 160px; transition-delay: 0.06s; }
+.tabbar.collapsed .tab-btn .tab-dot { position: absolute; top: 6px; right: 12px; }
 
 .content { flex: 1; padding: 24px; max-width: 1180px; width: 100%; margin: 0 auto; }
 
@@ -557,10 +638,10 @@ body.theme-light .login-primary { color: #1a1206; }
 /* ---------------- Responsive ---------------- */
 @media (max-width: 900px) {
   .dashboard-body { flex-direction: column; }
-  .tabbar {
+  .dashboard-main, .dashboard-main.sidebar-collapsed { margin-left: 0; }
+  .tabbar, .tabbar.collapsed, .tabbar.collapsed:hover {
     flex-direction: row;
     width: 100%;
-    flex: 0 0 auto;
     height: auto;
     position: static;
     padding: 8px 16px;
@@ -568,10 +649,23 @@ body.theme-light .login-primary { color: #1a1206; }
     border-bottom: 1px solid var(--a-stroke);
     overflow-x: auto;
     overflow-y: visible;
+    box-shadow: none;
   }
   .sidebar-brand { display: none; }
-  .tab-btn { border-left: none; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; }
+  .sidebar-toggle { display: none; }
+  .tab-btn, .tabbar.collapsed .tab-btn, .tabbar.collapsed:hover .tab-btn {
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 6px 6px 0 0;
+    justify-content: flex-start;
+    padding: 10px 12px;
+  }
   .tab-btn.active { border-left-color: transparent; border-bottom-color: var(--a-accent); }
+  .tab-label, .tabbar.collapsed .tab-label, .tabbar.collapsed:hover .tab-label {
+    opacity: 1;
+    max-width: none;
+  }
+  .tabbar.collapsed .tab-btn .tab-dot { position: static; }
 }
 @media (max-width: 640px) {
   .topbar { padding: 12px 16px; }

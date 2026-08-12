@@ -38,23 +38,26 @@
 
   <div class="dashboard-body">
 
-  <nav class="tabbar">
+  <nav class="tabbar" id="adminTabbar">
+    <button class="sidebar-toggle" id="sidebarToggleBtn" type="button" title="Collapse sidebar" aria-label="Collapse sidebar">
+      <i class="fas fa-angles-left"></i>
+    </button>
     <div class="topbar-brand sidebar-brand">
       <span class="brand-mark"><i class="fas fa-crown"></i></span>
       <span class="brand-name">EarnMaster Admin</span>
     </div>
-    <button class="tab-btn active" data-tab="overview">Overview</button>
-    <button class="tab-btn" data-tab="users">Users</button>
-    <button class="tab-btn" data-tab="withdrawals">Withdrawals</button>
-    <button class="tab-btn" data-tab="payments">Payments</button>
-    <button class="tab-btn" data-tab="tasks">Tasks</button>
-    <button class="tab-btn" data-tab="levels">Levels</button>
-    <button class="tab-btn" data-tab="broadcast">Broadcast</button>
-    <button class="tab-btn" data-tab="risk">Risk flags <span class="tab-dot" id="riskDot" hidden></span></button>
-    <button class="tab-btn" data-tab="audit">Audit log</button>
+    <button class="tab-btn active" data-tab="overview"><i class="fas fa-gauge-high tab-icon"></i><span class="tab-label">Overview</span></button>
+    <button class="tab-btn" data-tab="users"><i class="fas fa-users tab-icon"></i><span class="tab-label">Users</span></button>
+    <button class="tab-btn" data-tab="withdrawals"><i class="fas fa-money-bill-wave tab-icon"></i><span class="tab-label">Withdrawals</span></button>
+    <button class="tab-btn" data-tab="payments"><i class="fas fa-credit-card tab-icon"></i><span class="tab-label">Payments</span></button>
+    <button class="tab-btn" data-tab="tasks"><i class="fas fa-list-check tab-icon"></i><span class="tab-label">Tasks</span></button>
+    <button class="tab-btn" data-tab="levels"><i class="fas fa-layer-group tab-icon"></i><span class="tab-label">Levels</span></button>
+    <button class="tab-btn" data-tab="broadcast"><i class="fas fa-bullhorn tab-icon"></i><span class="tab-label">Broadcast</span></button>
+    <button class="tab-btn" data-tab="risk"><i class="fas fa-triangle-exclamation tab-icon"></i><span class="tab-label">Risk flags</span> <span class="tab-dot" id="riskDot" hidden></span></button>
+    <button class="tab-btn" data-tab="audit"><i class="fas fa-clipboard-list tab-icon"></i><span class="tab-label">Audit log</span></button>
   </nav>
 
-  <div class="dashboard-main">
+  <div class="dashboard-main" id="dashboardMain">
 
   <header class="topbar">
     <div class="topbar-actions">
