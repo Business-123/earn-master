@@ -2,7 +2,6 @@
   const LS = window.LevelSystem;
   if (!LS) return;
 
-  let verificationPromptShown = false;
   let verificationPaymentInFlight = false;
 
   function ensureWithdrawalShell() {
@@ -374,6 +373,15 @@ async function submitWithdrawalRequest() {
   try {
     const eligibility = LS.state.withdrawal.eligibility || (await loadEligibility());
 
+    // Minimum-withdrawal amount always overrides the one-time verification
+    // fee popup: if what they're requesting is below the minimum, show that
+    // error and stop there instead of prompting for the fee.
+    const amount = Number(document.getElementById("withdrawAmountNew")?.value || 0);
+    const minAmount = Number(eligibility?.minimum_withdrawal || 50);
+    if (amount < minAmount) {
+      throw new Error(`Minimum withdrawal amount is ${LS.money(minAmount)}.`);
+    }
+
     if (!eligibility?.can_withdraw) {
       if (eligibility?.reason_code === "verification_fee_required") {
         if (window.setButtonLoading) {
@@ -385,7 +393,6 @@ async function submitWithdrawalRequest() {
       throw new Error(eligibility?.message || "Withdrawal is currently blocked.");
     }
 
-    const amount = Number(document.getElementById("withdrawAmountNew")?.value || 0);
     const methodId =
       LS.state.withdrawal.selectedMethodId ||
       document.getElementById("withdrawMethodSelectNew")?.value ||
@@ -482,8 +489,7 @@ const confirmed = window.showConfirmModal
   }
 }
 
-  function init(options = {}) {
-    const { promptVerification = false } = options;
+  function init() {
     ensureWithdrawalShell();
 
     if (window.mountUiNotice) {
@@ -520,18 +526,10 @@ if (deleteMethodBtn && !deleteMethodBtn.dataset.bound) {
   deleteMethodBtn.addEventListener("click", deleteSelectedMethod);
 }
 
-    loadEligibility()
-      .then((eligibility) => {
-        if (
-          promptVerification &&
-          eligibility?.reason_code === "verification_fee_required" &&
-          !verificationPromptShown
-        ) {
-          verificationPromptShown = true;
-          promptVerificationFeePayment(eligibility);
-        }
-      })
-      .catch((error) => setWithdrawError(error.message));
+    // Eligibility is loaded silently here (used to render the page state).
+    // The verification-fee prompt itself only ever appears when the user
+    // taps "Request Withdrawal" — see submitWithdrawalRequest().
+    loadEligibility().catch((error) => setWithdrawError(error.message));
     loadHistory().catch((error) => setWithdrawError(error.message));
   }
 

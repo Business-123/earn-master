@@ -70,6 +70,25 @@ def get_withdrawal_eligibility(
 
     verification_fee = get_withdrawal_verification_fee(conn)
     verification_paid = bool(user["withdrawal_verification_paid"])
+    balance = float(user["balance"] or 0.0)
+
+    # The 50 GHS minimum-withdrawal gate always takes priority over the
+    # one-time verification fee prompt: a user who doesn't even have the
+    # minimum balance yet has no business being asked to pay a verification
+    # fee first.
+    if balance < MIN_WITHDRAWAL_AMOUNT:
+        return {
+            "can_withdraw": False,
+            "reason_code": "balance_below_minimum_withdrawal",
+            "message": f"You need at least {int(MIN_WITHDRAWAL_AMOUNT)} GHS before you can request a withdrawal.",
+            "current_active_level_id": None,
+            "current_active_level_number": None,
+            "balance": balance,
+            "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
+            "verification_fee_required": not verification_paid,
+            "verification_fee_amount": verification_fee,
+            "verification_fee_paid": verification_paid,
+        }
 
     if not verification_paid:
         return {
@@ -105,20 +124,6 @@ def get_withdrawal_eligibility(
             "verification_fee_paid": True,
         }
 
-    if balance < MIN_WITHDRAWAL_AMOUNT:
-        return {
-            "can_withdraw": False,
-            "reason_code": "balance_below_minimum_withdrawal",
-            "message": f"You need at least {int(MIN_WITHDRAWAL_AMOUNT)} GHS before you can request a withdrawal.",
-            "current_active_level_id": None,
-            "current_active_level_number": None,
-            "balance": balance,
-            "minimum_withdrawal": float(MIN_WITHDRAWAL_AMOUNT),
-            "verification_fee_required": False,
-            "verification_fee_amount": verification_fee,
-            "verification_fee_paid": True,
-        }
-
     return {
         "can_withdraw": True,
         "reason_code": None,
@@ -142,18 +147,21 @@ def validate_withdrawal_request(
     number: str,
     name: str,
 ) -> dict[str, Any]:
-    eligibility = get_withdrawal_eligibility(conn, user_id)
-    if not eligibility["can_withdraw"]:
-        raise ValueError(eligibility["message"])
-
     parsed_amount = _to_float(amount)
     if parsed_amount is None:
         raise ValueError("Invalid withdrawal amount.")
 
+    # The minimum-withdrawal amount is checked first so it always overrides
+    # the one-time verification fee requirement below: someone requesting
+    # less than the minimum should see that error, not the fee prompt.
     if parsed_amount < MIN_WITHDRAWAL_AMOUNT:
         raise ValueError(
             f"Minimum withdrawal amount is {int(MIN_WITHDRAWAL_AMOUNT)} GHS."
         )
+
+    eligibility = get_withdrawal_eligibility(conn, user_id)
+    if not eligibility["can_withdraw"]:
+        raise ValueError(eligibility["message"])
 
     balance = float(eligibility["balance"] or 0.0)
     if parsed_amount > balance:
